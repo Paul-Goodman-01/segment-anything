@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import random
 import traceback
 import tkinter as tk
 from tkinter.filedialog import askopenfilename
@@ -18,6 +19,200 @@ class ScriptException(Exception):
 
 ##########################################################################################################
 
+# Check that required directories exist
+def checkDirectories(base, dens, json, out):
+    return os.path.exists(base) and os.path.exists(dens) and os.path.exists(json) and os.path.exists(out)
+
+def doImageCheckingAndRescaling(base, dens, metrics):
+    OK = False
+    # Get the shapes of the two images
+    base_shape = base.shape
+    dens_shape = dens.shape
+    json_shape = (metrics['IM_SHAPE'][0], metrics['IM_SHAPE'][1], 3)
+    json_normalised = metrics[next(iter(grouping))]['NORMALISED']
+    print(f"Base image shape     : {base_shape}")
+    print(f"Densepose mask shape : {dens_shape}")
+    print(f"JSON metrics shape   : {json_shape}")
+    print(f"Normalised metrics?  : {json_normalised}")
+    # OK the dimensions of the two images, and the dimensions stored in the json should all match
+    # if not, rescale the densepose file to match the base image, and rescale the body metrics in
+    # the json file - fail if this is not possible.
+    if json_normalised == False:
+        if not base_shape == dens_shape:
+            print("Image shapes do not match, and mask metrics cannot be rescaled!")
+        else: 
+            print("Images are of correct shape, and metrics do not need to be rescaled")
+            OK = True
+    else:
+        print("Resizing densepose mask image to match base image, and rescaling mask metrics")
+        image_metrics = getRescaledResults( metrics, base_shape[1], base_shape[0] )
+        dens_image = ski.transform.resize(dens, (base_shape[0], base_shape[1]), anti_aliasing=False)
+        dens_shape = dens_image.shape
+        json_shape = (image_metrics['IM_SHAPE'][0], image_metrics['IM_SHAPE'][1], 3)
+        json_normalised = image_metrics[next(iter(grouping))]['NORMALISED']
+        print(f"Base image shape     : {base_shape}")
+        print(f"Densepose mask shape : {dens_shape}")
+        print(f"JSON metrics shape   : {json_shape}")
+        print(f"Normalised metrics?  : {json_normalised}")
+        OK = True
+
+    return OK, dens_image, image_metrics
+
+def dumpException(e):
+    print("Exception", e)
+    stack_trace = traceback.format_exc()
+    print("Stack Trace:")
+    print(stack_trace)
+
+# Simple function to print elements of a list
+def dumpFileList(file_list):
+    for i, file in enumerate(file_list):
+        print(f"{i}. {file}")
+
+def generateSAMArrays(body_part,
+                      image_metrics,
+                      area_thresh =None, 
+                      area_ratio  =None, 
+                      max_block   =None, 
+                      bbox_padding=[-1,-1,-1,-1], 
+                      verbose     =False ):
+    points = bboxes = labels = []   
+    if body_part in image_metrics.keys():
+        metrics = image_metrics[body_part] 
+        max_x = image_metrics['IM_SHAPE'][1] 
+        max_y = image_metrics['IM_SHAPE'][0]
+        # Annoyingly SAM wants points in (x,y) format, but ski has them in (y,x) format
+        areas = [a for a in metrics['AREAS']]
+        if len(areas)>0: 
+            print(f"> Largest area: {areas[0]} pixels")
+
+        points = [[x, y] for y, x in metrics['CENTS']]    
+        labels = [1] * len(points)
+
+        if not max_block == None:
+            points = points[:max_block]
+            labels = labels[:max_block]
+
+        bboxes = [[x1, y1, x2, y2] for y1, x1, y2, x2 in metrics['BBOXS']]
+        bboxes = [getCompositeBoundingBox(bboxes)]
+        if len(bboxes[0])>0: 
+            print(f"Max x: {max_x}, Max_y: {max_y}")
+            print(f"Inital bbox: {bboxes}")
+            #Handle automatic generation of bounding box padding
+            if bbox_padding[0] == -1:
+                x_pad = round(0.1 * (bboxes[0][2] - bboxes[0][0]))
+                y_pad = round(0.2 * (bboxes[0][3] - bboxes[0][1]))
+                bbox_padding = [x_pad, y_pad, x_pad, y_pad]
+
+            bboxes[0][0] = round(max(bboxes[0][0] - bbox_padding[0], 0))
+            bboxes[0][1] = round(max(bboxes[0][1] - bbox_padding[1], 0)) 
+            bboxes[0][2] = round(min(bboxes[0][2] + bbox_padding[2], max_x))
+            bboxes[0][3] = round(min(bboxes[0][3] + bbox_padding[3], max_y))
+            print(f"Padding    : {bbox_padding}")
+            print(f"Final bbox : {bboxes}")
+
+        points = np.asarray(points)
+        bboxes = np.asarray(bboxes)
+        labels = np.asarray(labels)
+
+        if verbose==True:
+            print(f"Key (Body part): '{body_part}'")
+            print(f"Centroid points: '{points}'")
+            print(f"Bounding box   : '{bboxes}'")
+            print(f"Interior labels: '{labels}'")
+    else:
+        print(f"WARNING! : Body part '{body_part}' not found in image metrics!")
+
+    return points, bboxes, labels
+
+def generateSAMCompositeBodyPartsPrediction(keys, image_metrics, use_bbox=False, verbose=False):
+    if len(keys)>0:
+        composite_mask = np.zeros((image_metrics['IM_SHAPE'][0], image_metrics['IM_SHAPE'][1]), dtype=bool)
+        composite_mask = composite_mask[None, :, :]
+        if verbose==True:
+            print(f"Composite mask generation on keys {keys}")
+            print(f"Composite mask shape: {composite_mask.shape}")
+            print(f"Use bounding box: {use_bbox}")
+        for key in keys:
+            mask, _, _, _, _, _ = generateSAMSingleBodyPartPrediction(key, image_metrics, use_bbox, verbose=verbose)
+            composite_mask = np.logical_or(composite_mask, mask)    
+    else:
+        print("WARNING! : No body parts passed to SAM composite mask generation!")
+    return composite_mask
+
+def generateSAMSingleBodyPartPrediction(key, metrics, use_bbox = False, multimask_output = False, verbose=False):
+    points, bboxes, labels = generateSAMArrays(key,
+                                               metrics, 
+                                               verbose=verbose,
+                                               max_block=1)
+    masks, scores, logits = generateSAMPrediction(points, 
+                                                  bboxes, 
+                                                  labels, 
+                                                  use_bbox, 
+                                                  multimask_output)
+    if multimask_output==True and len(masks)>0:
+        # Return the best scoring image out of the first two masks (the third always seems to overpredict)
+        print(f"> Mask Scores: {scores}")    
+        scores = scores[:2] # Only use the first two masks
+        max_score = max(scores)
+        max_idxs = [index for index, value in enumerate(scores) if value == max_score] # Should be rare for two masks to have the same score, but...  
+        idx = max_idxs[-1] # Favour the last element in the list'
+        masks = [masks[idx]]
+        scores = [scores[idx]]
+        logits = [logits[idx]]
+
+    if not use_bbox:
+        bboxes = []
+    return masks, scores, logits, points, bboxes, labels
+
+def generateSAMPrediction(points, bboxes, labels, use_bbox = False, multimask_output = False):
+    masks = scores = logits = []
+    if not use_bbox:
+        if len(points)>0 and len(points)==len(labels):
+            masks, scores, logits = predictor.predict(
+                point_coords=points,
+                point_labels=labels,
+                multimask_output=multimask_output,
+            )
+    else:
+        if len(points)>0 and len(points)==len(labels) and len(bboxes)>0:
+            masks, scores, logits = predictor.predict(
+                point_coords=points,
+                point_labels=labels,
+                box=bboxes,
+                multimask_output=multimask_output,
+            )
+    return masks, scores, logits
+
+def getCompositeBoundingBox(bbox_list):
+    result = []
+    min_X = min_Y = 99999
+    max_X = max_Y = -99999
+    for bbox in bbox_list:
+        min_Y = min(min_Y, bbox[0])
+        min_X = min(min_X, bbox[1])
+        max_Y = max(max_Y, bbox[2])
+        max_X = max(max_X, bbox[3])
+    if min_X < 99999:
+        result = [min_Y, min_X, max_Y, max_X]
+    return result
+
+# Get lists of files in each input directory
+def getDirectoryFileLists(base, dens, json):
+    base_list = getFilesInDirectory(base, image_extensions)
+    dens_list = getFilesInDirectory(dens, image_extensions)
+    json_list = getFilesInDirectory(json, ["json"])
+
+    # Quick check to see if these seen to match
+    print (f"Found {len(base_list)} image files in base directory")
+    print (f"Found {len(dens_list)} image files in densepose mask directory")
+    print (f"Found {len(json_list)} image files in densepose json directory")
+    all_equal = len(base_list) == len(dens_list) == len(json_list)
+    if not all_equal:
+        print("WARNING! : Unequal numbers of files in input directories!")
+
+    return base_list, dens_list, json_list
+
 # Get all files in a directory with extensions matching a filter list
 def getFilesInDirectory(root, filters):
     file_list = []
@@ -25,6 +220,33 @@ def getFilesInDirectory(root, filters):
         pattern = f"{root}/*.{ext}"
         file_list.extend(glob.glob(pattern))
     return file_list
+
+def getFilenameTriple(base, dens_files, json_files):
+    OK = False
+    dens_file = json_file = None
+    base_name = os.path.basename(base)
+    file_name, _ = os.path.splitext(base_name)
+    file_name = "/"+file_name+"."
+    matching_dens_files = [element for element in dens_files if file_name in element]
+    matching_json_files = [element for element in json_files if file_name in element]
+
+    if len(matching_dens_files) == 0:
+        print(f"WARNING! : No matching densepose mask found for '{base_name}'!")
+    elif len(matching_dens_files) > 1: 
+        print(f"WARNING! : Multiple matching densepose masks found for '{base_name}'!")
+
+    if not len(matching_json_files) == 1:
+        print(f"WARNING! : No matching densepose json found for '{base_name}'!")
+
+    OK = len(matching_dens_files) == len(matching_json_files) == 1
+    if OK: 
+        dens_file = matching_dens_files[0]
+        json_file = matching_json_files[0]
+        print(f"Base file : '{base_file}'")
+        print(f"Dens_file : '{dens_file}'")
+        print(f"Json_file : '{json_file}'")
+
+    return OK, dens_file, json_file
 
 # Get rescaled metrics for a single body part (if necessary)
 # NB: Creates a copy of the original metrics and returns the altered copy
@@ -46,14 +268,77 @@ def getRescaledResults(results, new_w, new_h):
             new_part_results = getRescaledMetrics(results[item], new_w, new_h)
             new_results[item] = new_part_results
     new_results['IM_SHAPE'] = [new_h, new_w]
-
     return new_results
 
-def showMask(mask, ax, random_color=False):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+def initSegmentAnythingModel(model, checkpoint, device):
+    OK = False
+    # Set up segment-anything model
+    print(f"Setting model '{model}' and loading weights from '{checkpoint}'")
+    try:
+        sam = sam_model_registry[model](checkpoint=checkpoint)
+        sam.to(device=device)
+
+        # Create predictor
+        print("Creating SAM predictor...")
+        predictor = SamPredictor(sam)
+
+        OK = True
+    except Exception as e:
+       dumpException(e) 
+
+    return OK, sam, predictor
+
+def readFileTriple(base_filename, dens_filename, json_filename):
+    OK = False
+    base_image = dens_image = image_metrics = None
+    try:
+        # Load the two images 
+        base_image = ski.io.imread(base_filename)
+        dens_image = ski.io.imread(dens_filename)
+
+        # Try to read in the json data 
+        with open(json_filename, 'r') as file:
+            image_metrics = json.load(file)
+
+        OK = True
+    except Exception as e:
+        print(f"ERROR!: Failed to read inputs associated with '{base_filename}'")
+        dumpException(e)
+
+    return OK, base_image, dens_image, image_metrics
+
+def setDirectories(in_root_dir, out_root_dir):
+    base_dir = os.path.join(in_root_dir, "data")
+    dens_dir = os.path.join(in_root_dir, "results_cvton") 
+    json_dir = os.path.join(in_root_dir, "results_cvton_dump")
+    out_dir  = os.path.join(out_root_dir, "result_masks")
+
+    print(f"Base image directory     : '{base_dir}'")
+    print(f"Densepose mask directory : '{dens_dir}'")
+    print(f"Densepose json directory : '{json_dir}'")
+    print(f"Output masks directory   : '{out_dir}'")
+
+    ## Create output directory if it doesn't exist
+    if not os.path.exists(out_dir):
+        try: 
+            os.makedirs(out_dir)
+            print(f"Created output directory : '{out_dir}'")
+        except:
+            print(f"ERROR! : Failed to create output directory!")
     else:
-        color = np.array([30/255, 144/255, 255/255, 0.6])
+        if any(os.listdir(out_dir)):
+            print("WARNING! : Files in output path will be overwritten!")
+ 
+    return base_dir, dens_dir, json_dir, out_dir 
+
+def setSAMImage(pred, image):
+    pred.set_image(image)
+
+def showMask(mask, ax, random_color=False, opacity=0.6):
+    if random_color:
+        color = np.concatenate([np.random.random(3), np.array([opacity])], axis=0)
+    else:
+        color = np.array([30/255, 144/255, 255/255, opacity])
     h, w = mask.shape[-2:]
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
@@ -69,168 +354,126 @@ def showBox(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2))
 
+def showBoxes(boxes, ax):
+    for box in boxes:
+        showBox(box, ax)
+
+def showImageAndMask(base_image, mask, win_title):
+        plt.figure(figsize=(10,10))
+        plt.imshow(base_image)
+        showMask(mask, plt.gca(), opacity=1.0)
+        plt.title("Composite image and mask", fontsize=18)
+        plt.axis('on')
+        fig_manager = plt.get_current_fig_manager()
+        fig_manager.set_window_title(win_title)
+        plt.show() 
+        # Set window name
+        
+        print(win_title)
+
+def showImageAndMaskDetail(key, base_image, masks, scores, points, bboxes, labels, win_title):
+    for i, (mask, score) in enumerate(zip(masks, scores)):
+        plt.figure(figsize=(10,10))
+        plt.imshow(base_image)
+        showMask(mask, plt.gca(), opacity=1.0)
+        showPoints(points, labels, plt.gca())
+        showBoxes(bboxes, plt.gca())
+        plt.title(f"{key}, Mask {i+1}, Score: {score:.3f}", fontsize=18)
+        plt.axis('on')
+        # Set window name
+        fig_manager = plt.get_current_fig_manager()
+        fig_manager.set_window_title(win_title)
+        plt.show() 
+
 ##########################################################################################################
 
-## Set up inupt and grouping dictionaries in use
+## Initialise SAM parameters
+setup_sam      = True
+sam_checkpoint = "./checkpoints/sam_vit_h_4b8939.pth"
+sam_model      = "vit_h"
+sam_device     = "cuda"
+is_sam_OK      = False
+
+if setup_sam == True:
+    is_sam_OK, sam, predictor = initSegmentAnythingModel(sam_model, sam_checkpoint, sam_device)
+    if not is_sam_OK:
+        raise ScriptException("ERROR! : Could not initialise Segment Anything Model!")
+
+## Initialise input and grouping dictionaries
 input_mode       = "CVTON" # This sets the colours that define the masks - see 'DenseposeGroupingColours.py'
 input_colours    = dgc.input_mode_dict[input_mode]
 grouping_mode    = "RAW" # This sets how densepose 'fine' classifications are aggregated - see 'DenseposeGroupingColours.py'
 grouping         = dgc.group_mode_dict[grouping_mode]
+image_extensions = ["jpg", "png"]
 
 ##OK Let's just hardcode these directories for now 
 root_dir = os.getcwd()
 parent_of_root = os.path.dirname(root_dir)
-base_dir = os.path.join(parent_of_root, "detectron2/data")
-dens_dir = os.path.join(parent_of_root, "detectron2/results_cvton")
-json_dir = os.path.join(parent_of_root, "detectron2/results_cvton_dump")
-image_extensions = ["jpg", "png"]
+in_root_dir = os.path.join(parent_of_root, "detectron2")
+base_dir, dens_dir, json_dir, out_dir = setDirectories(in_root_dir, root_dir)
 
-setup_sam = True
-
-if setup_sam == True:
-    # Set segment-anything model variables
-    sam_checkpoint = "./checkpoints/sam_vit_h_4b8939.pth"
-    model_type = "vit_h"
-    device = "cuda"
-
-    # Set up segment-anything model
-    print("Setting model registry and loading weights...")
-    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-    sam.to(device=device)
-
-    # Create predictor
-    print("Creating predictor...")
-    predictor = SamPredictor(sam)
-
-# Check to see if directories exist
 try:
-    if not os.path.exists(base_dir) or not os.path.exists(dens_dir) or not os.path.exists(json_dir):
-        raise ScriptException("One or more input directories didn't exist!")
+    # Check to see if directories exist
+    if not checkDirectories(base_dir, dens_dir, json_dir, out_dir):
+        raise ScriptException("One or more required directories does not exist!")
     
     #OK Get file lists for each directory
-    base_list = getFilesInDirectory(base_dir, image_extensions)
-    dens_list = getFilesInDirectory(dens_dir, image_extensions)
-    json_list = getFilesInDirectory(json_dir, ["json"])
+    base_list, dens_list, json_list = getDirectoryFileLists(base_dir, dens_dir, json_dir)
+ 
+    #file_idx = 1
+    file_idx = random.randint(0, len(base_list)-1)
+    base_file = base_list[file_idx]
+    print(f"Base file: {file_idx} : '{base_file}'")
+    OK, dens_file, json_file = getFilenameTriple(base_file, dens_list, json_list)
+    if not OK:
+        raise ScriptException("Matching .json or densepose file to base image failed!")
 
-    for i, file in enumerate(base_list):
-        print(f"{i}. {file}")
+    # OK We should have the files we need now... load 'em up
+    OK, base_image, dens_image, image_metrics = readFileTriple(base_file, dens_file, json_file)
+    if not OK:
+        raise ScriptException("Failed to read in file data!")
 
-    file_idx = 1
-    base_file = os.path.basename(base_list[file_idx])
-    base_name, base_ext = os.path.splitext(base_file)
-    base_file = os.path.join(base_dir, base_file)
-    matching_dens_files = [element for element in dens_list if base_name in element]
-    matching_json_files = [element for element in json_list if base_name in element]
-
-    print(f"Base file  : '{base_file}'")
-    print(f"Dens_files : '{matching_dens_files}'")
-    print(f"Json_files : '{matching_json_files}'")
-
-    # Check to see that there is a matching json file and a densepose file
-    if not len(matching_dens_files)==1 or not len(matching_json_files)==1:
-        raise ScriptException("Matching .json or densepose file to base image was ambiguous!")
-    else:
-        json_file = matching_json_files[0]
-        dens_file = matching_dens_files[0]
-
-    # OK We should have the files we need now...
-        
-    # Load the two images 
-    base_image = ski.io.imread(base_file)
-    dens_image = ski.io.imread(dens_file)
-
-    # Try to read in the json data 
-    with open(json_file, 'r') as json_file:
-        image_metrics = json.load(json_file)
-
-    # Get the shapes of the two images
-    base_shape = base_image.shape
-    dens_shape = dens_image.shape
-    json_shape = (image_metrics['IM_SHAPE'][0], image_metrics['IM_SHAPE'][1], 3)
-    json_normalised = image_metrics[next(iter(grouping))]['NORMALISED']
-    print(f"Base image shape     : {base_shape}")
-    print(f"Densepose mask shape : {dens_shape}")
-    print(f"JSON metrics shape   : {json_shape}")
-    print(f"Normalised metrics?  : {json_normalised}")
-    # OK the dimensions of the two images, and the dimensions stored in the json should all match
-    # if not, rescale the densepose file to match the base image, and rescale the body metrics in
-    # the json file - fail if this is not possible.
-    if json_normalised == False:
-        if not base_shape == dens_shape:
-            raise ScriptException("Image shapes do not match, and mask metrics cannot be rescaled!")
-        else: 
-            print("Images are of correct shape, and metrics do not need to be rescaled")
-    else:
-        print("Resizing densepose mask image to match base image, and rescaling mask metrics")
-        image_metrics = getRescaledResults( image_metrics, base_shape[1], base_shape[0] )
-        dens_image = ski.transform.resize(dens_image, (base_shape[0], base_shape[1]), anti_aliasing=False)
-        dens_shape = dens_image.shape
-        json_shape = (image_metrics['IM_SHAPE'][0], image_metrics['IM_SHAPE'][1], 3)
-        json_normalised = image_metrics[next(iter(grouping))]['NORMALISED']
-        print(f"Base image shape     : {base_shape}")
-        print(f"Densepose mask shape : {dens_shape}")
-        print(f"JSON metrics shape   : {json_shape}")
-        print(f"Normalised metrics?  : {json_normalised}")
-        
-    # OK, Now we should be able to start doing something 
+    OK, dens_image, image_metrics = doImageCheckingAndRescaling(base_image, dens_image, image_metrics)
+    if not OK:
+        raise ScriptException("Failed to rescale image or image metrics correctly!")
+ 
+    # OK, Now we should be able to start doing something with SAM
     
     # Get the part metrics for the front torso
     #group_key="23-Head-Right"
     #group_key="2-Torso-Front"
     #group_key="9-Leg-Right-Upper-Front"
     #group_key="10-Leg-Left-Upper-Front"
-    group_key="4-Hand-Left"
+    #group_key="4-Hand-Left"
     #group_key="3-Hand-Right"
+   
+    #key_list = ["23-Head-Right", "2-Torso-Front", "9-Leg-Right-Upper-Front", "10-Leg-Left-Upper-Front", "4-Hand-Left", "4-Hand-Left", "3-Hand-Right", "3-Hand-Right"]
+    #use_bbox_list = [False, False, False, False, False, True, False, True]
 
-    metrics = image_metrics[group_key]
+    key_list = dgc.densepose_semantic_labels
+    use_bbox_list = [True] * len(key_list)
+
+    #key_list = [["23-Head-Right", "24-Head-Left"]]
+    #key_list = [["2-Torso-Front"]]
+    #use_bbox_list = [True]
     multimask_output = False
-    multi_points = False
+    
+    if is_sam_OK == True:
+        print(key_list)
+        print(zip(key_list, use_bbox_list))
+        for group_key, use_bbox in zip(key_list, use_bbox_list):
+            print(f"Group key: '{group_key}, Use_bbox?: {use_bbox}")        
+            setSAMImage(predictor, base_image)
+            masks, scores, logits, points, bboxes, labels = generateSAMSingleBodyPartPrediction(group_key, image_metrics, use_bbox, multimask_output=True)
+            showImageAndMaskDetail(group_key, base_image, masks, scores, points, bboxes, labels, os.path.basename(base_file))
 
-    # Annoyingly sam wants points in (x,y) format, but ski has them in (y,x) format
-    test_points = [[x, y] for y, x in metrics['CENTS']]
-    test_bboxes = [[x1, y1, x2, y2] for y1, x1, y2, x2 in metrics['BBOXS']]
-    test_labels = [1] * len(test_points)
-    if multi_points == False:
-        test_points = [test_points[0]]
-        test_bboxes = [test_bboxes[0]]
-        test_labels = [test_labels[0]]
-    test_points = np.asarray(test_points)
-    test_bboxes = np.asarray(test_bboxes)
-    test_labels = np.asarray(test_labels)
-
-    print(group_key)
-    print(test_points)
-    print(test_bboxes)
-    print(test_labels)
-
-    if setup_sam == True:
-        predictor.set_image(base_image)
-
-        masks, scores, logits = predictor.predict(
-            point_coords=test_points,
-            point_labels=test_labels,
-            #box=test_bboxes,
-            multimask_output=multimask_output,
-        )
-
-        for i, (mask, score) in enumerate(zip(masks, scores)):
-            plt.figure(figsize=(10,10))
-            plt.imshow(base_image)
-            showMask(mask, plt.gca())
-            showPoints(test_points, test_labels, plt.gca())
-            plt.title(f"Mask {i+1}, Score: {score:.3f}", fontsize=18)
-            plt.axis('off')
-            plt.show() 
-
-        print(masks[0])
-
+            #mask = generateSAMCompositeBodyPartsPrediction(group_key, image_metrics, use_bbox, verbose=True)
+            #showImageAndMask(base_image, mask, os.path.basename(base_file))
+       
 except ScriptException as e:
     print("EXIT : ", e)
 
 except Exception as e:
-    print("Exception", e)
-    stack_trace = traceback.format_exc()
-    print("Stack Trace:")
-    print(stack_trace)
+    dumpException(e)
 
 
