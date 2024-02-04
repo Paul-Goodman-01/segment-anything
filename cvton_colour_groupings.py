@@ -36,6 +36,14 @@ densepose_groupings = {"BACKG" : [0],
                        "L_LEG" : [5, 8, 10, 12,14],
                        "HEAD"  : [23, 24]}
 
+densepose_groupings_skeleton = { "BACKG" : [0], #0
+                       			 "BODY"  : [6], #1
+                       			 "R_ARM" : [6], #2
+                       			 "L_ARM" : [6], #3
+                       			 "R_LEG" : [1], #4
+                       			 "L_LEG" : [1], #5
+                       			 "HEAD"  : [6]} #6
+
 densepose_groupings_with_hands = {"BACKG" : [0],
                                   "BODY"  : [1, 2],
                                   "R_HAND": [3],
@@ -46,7 +54,43 @@ densepose_groupings_with_hands = {"BACKG" : [0],
                                   "L_LEG" : [5, 8, 10, 12,14],
                                   "HEAD"  : [23,24]}
 
+densepose_groupings_with_hands_skeleton = {"BACKG" : [0], #0
+                                  		   "BODY"  : [8], #1
+                                  		   "R_HAND": [4], #2
+                                  		   "L_HAND": [5], #3
+                                  		   "R_ARM" : [8], #4
+                                  		   "L_ARM" : [8], #5
+                                  		   "R_LEG" : [1], #6
+                                  		   "L_LEG" : [1], #7
+                                  		   "HEAD"  : [8]} #8
+
 densepose_raw = {item: [index] for index, item in enumerate(densepose_semantic_labels)}
+
+densepose_raw_skeleton = {"0-Background" 				: [0],
+	                  	  "1-Torso-Rear" 				: [23, 24],
+                          "2-Torso-Front"				: [23, 24],
+                          "3-Hand-Right" 				: [20, 22],
+                          "4-Hand-Left"  				: [19, 21], 
+                          "5-Foot-Left"  				: [12, 14],
+                          "6-Foot-Right" 				: [11, 13],
+                          "7-Leg-Right-Upper-Rear" 		: [1, 2],
+                          "8-Leg-Left-Upper-Rear"  		: [1, 2],
+                          "9-Leg-Right-Upper-Front" 	: [1, 2],
+                          "10-Leg-Left-Upper-Front" 	: [1, 2],
+                          "11-Leg-Right-Lower-Rear" 	: [7, 9],
+                          "12-Leg-Left-Lower-Rear" 		: [8, 10],
+                          "13-Leg-Right-Lower-Front" 	: [7, 9],
+                          "14-Leg-Left-Lower-Front" 	: [8, 10],
+                          "15-Arm-Left-Upper-Inner" 	: [23, 24],
+                          "16-Arm-Right-Upper-Inner" 	: [23, 24],
+                          "17-Arm-Left-Upper-Outer" 	: [23, 24],
+                          "18-Arm-Right-Upper-Outer" 	: [23, 24],
+                          "19-Arm-Left-Lower-Inner" 	: [15, 17],
+                          "20-Arm-Right-Lower-Inner" 	: [16, 18],
+                          "21-Arm-Left-Lower-Outer" 	: [15, 17],
+                          "22-Arm-Right-Lower-Outer" 	: [16, 18],
+                          "23-Head-Right" 				: [23],
+                          "24-Head-Left" 				: [24] }
 
 densepose_semantic_cols = [(0, 0, 0), # 0, Background
 	                       (25, 42, 114), # 1 Torso 1 (Rear)
@@ -106,3 +150,7 @@ input_mode_dict = { "DEFAULT": densepose_semantic_cols,
 group_mode_dict = { "DEFAULT"     : densepose_groupings,
                     "WITH_HANDS"  : densepose_groupings_with_hands,
                     "RAW"         : densepose_raw }
+
+skeleton_mode_dict = { "DEFAULT"    : densepose_groupings_skeleton, 
+                       "WITH_HANDS" : densepose_groupings_with_hands_skeleton,
+                       "RAW"		: densepose_raw_skeleton }
