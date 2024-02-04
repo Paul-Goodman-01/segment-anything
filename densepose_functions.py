@@ -1,5 +1,4 @@
 
-
 # Get rescaled image metrics
 def getRescaledImageMetrics(image_metrics, new_w, new_h):
     new_image_metrics = image_metrics

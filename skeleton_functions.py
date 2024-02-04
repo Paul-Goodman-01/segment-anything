@@ -105,7 +105,7 @@ def skeletonGetRescaledBones(skeleton, new_w, new_h):
             #print(f"xx {bone_data} xx")
             new_bone_data = skeletonGetRescaledBoneMetrics(bone_data, new_w, new_h)
             #print(f"xx {new_bone_data} xx")
-        new_skeleton[bone_name] = new_bone_data
+            new_skeleton[bone_name] = new_bone_data
     return new_skeleton
 
 def skeletonGetUsedBoneGroups(skeleton):
@@ -198,7 +198,7 @@ def skeletonGetBoneControlPoint(skeleton, bone_group, t_val):
             r_pt = 1.0 - ((cum_list[idx] - t_cp) / bone_data[3])
             pt_y = bone_data[0][0][0] + (r_pt * bone_data[4][0] * bone_data[3])
             pt_x = bone_data[0][0][1] + (r_pt * bone_data[4][1] * bone_data[3])
-            control_point = [pt_y, pt_x, bone_data[2]]
+            control_point = [round(pt_y), round(pt_x), bone_data[2]]
             #print(f"Control point lies in bone {bone_names[idx]} : {bone_data} at relative point {r_pt}, coordinates: {control_point}, visible: {visible}")
             
     return control_point

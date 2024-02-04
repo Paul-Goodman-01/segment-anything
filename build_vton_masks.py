@@ -2,6 +2,7 @@ import os
 import glob
 import json
 import copy
+import math
 import random
 import traceback
 import skimage as ski
@@ -74,11 +75,14 @@ def createMaskedImage(original_image, mask_image, back_colour='black', rep_colou
     composite_image = ski.img_as_ubyte(composite_image)
     return composite_image
 
-def createSAMinputs(create_props, image_metrics, body_parts, skeleton):
-    points = []
-    labels = []
-    bbox   = None
-    masks  = None
+def createSAMinputs(create_props, image_metrics, body_parts, skeleton, verbose=False):
+    points      = []
+    labels      = []
+    bbox        = None
+    mask        = None
+    multi_out   = True
+    force_multi = False
+
     #check dictionary keys
     if not create_props['AI_POINTS'] == None:
         print("Adding AI points")
@@ -118,11 +122,11 @@ def createSAMinputs(create_props, image_metrics, body_parts, skeleton):
 
     if not create_props['BBOX'] == None:
         print("Adding Bounding Box")
-        bbox = samProcessBoundingBox(create_props['BBOX'], body_parts)
+        bbox = samProcessBoundingBox(create_props['BBOX'], body_parts, [0, 0, image_metrics['IM_SHAPE'][1], image_metrics['IM_SHAPE'][0]])
         
     if not create_props['MASK'] == None:
         print("Adding Mask")
-        masks = create_props['MASK']
+        mask = create_props['MASK']
     
     multi_out = create_props['MULTI_OUT'] 
     print("Set multimask output to {multi_out}")
@@ -131,7 +135,18 @@ def createSAMinputs(create_props, image_metrics, body_parts, skeleton):
         force_multi = create_props['FORCE_MULTI']
         print(f"Set forced multimask return to {force_multi}")
         
-    return points, labels, bbox, masks, multi_out, force_multi
+    if verbose==True:
+        print("----------------------------------------------")
+        print("Created SAM inputs:")
+        print(f"Points : {points}")
+        print(f"Labels : {labels}")   
+        print(f"B-Box  : {bbox}")   
+        print(f"Mask   : {mask}")   
+        print(f"Multi  : {multi_out}")   
+        print(f"Forced : {force_multi}")           
+        print("----------------------------------------------")
+
+    return points, labels, bbox, mask, multi_out, force_multi
 
 def doImageCheckingAndRescaling(base, dens, grouping, image_metrics, body_metrics, skeleton_metrics):
     OK = False
@@ -212,6 +227,24 @@ def getBinaryMaskWithTolerance(image, colour, tolerance=20):
     colour_diff = np.linalg.norm(image - colour, axis=-1)
     binary_mask = colour_diff <= tolerance
     return binary_mask, colour
+
+def getCompositeBoundingBox(body_parts, body_part, max_parts=100):
+    result = None
+    if body_part in body_parts.keys() and max_parts>0:
+        bbox_list = body_parts[body_part]['BBOXS']
+        if not bbox_list==None and len(bbox_list)>0: 
+            if max_parts>len(bbox_list):
+                bbox_list = bbox_list[:max_parts]    
+            min_X = min_Y = math.inf
+            max_X = max_Y = -math.inf
+            for bbox in bbox_list:
+                min_Y = min(min_Y, bbox[0])
+                min_X = min(min_X, bbox[1])
+                max_Y = max(max_Y, bbox[2])
+                max_X = max(max_X, bbox[3])
+            if min_X < math.inf:
+                result = [min_Y, min_X, max_Y, max_X]
+    return result
 
 def getDefaultSAMInputDictionary():
     result = {}
@@ -361,7 +394,7 @@ def samProcessRelativePoints(create_data, image_metrics, include):
         w = image_metrics['IM_SHAPE'][1]
         h = image_metrics['IM_SHAPE'][0]
         if not w==None and w > 0 and not h==None and h > 0: 
-            new_points = [[x * w, y * h] for x, y in create_data]
+            new_points = [[round(x * w), round(y * h)] for x, y in create_data]
             new_labels = [include] * len(new_points)
     return new_points, new_labels
 
@@ -371,9 +404,12 @@ def samProcessSkeletonPoints(create_data, skeleton, include):
     if not create_data == None and len(create_data)>0:
         temp_points = []
         for bone_group, t_value in create_data:
+            print(f"Bone group: {bone_group}, : t_value: {t_value}")
+            #print(f"{skeleton}")
             point = skel.skeletonGetBoneControlPoint(skeleton, bone_group, t_value)
             if len(point)>0:
-                temp_points.append(point)
+                if point[2]==True:
+                    temp_points.append(point[:-1])
 
         if len(temp_points)>0:
             new_points = temp_points
@@ -381,10 +417,48 @@ def samProcessSkeletonPoints(create_data, skeleton, include):
 
     return new_points, new_labels
 
-def samProcessBoundingBox(create_data, body_parts):
+def samProcessBoundingBox(create_data, body_parts, clamp_vals=None):
     new_bbox   = None
-    return new_bbox
+    if not create_data == None and len(create_data)>0:
+        if create_data[0] in body_parts.keys():
+            temp_bbox = getCompositeBoundingBox(body_parts, create_data[0])
+            if not temp_bbox==None:
+                new_bbox = []
+                ox = round((temp_bbox[1]+temp_bbox[3])*0.5)
+                oy = round((temp_bbox[0]+temp_bbox[2])*0.5)
+                w  = temp_bbox[3]-temp_bbox[1]
+                h  = temp_bbox[2]-temp_bbox[0]
+                print(f"Box origin : [{ox}, {oy}], width: {w}, height: {h} ")
+                print(f"Temp box   : {temp_bbox}")
+                if not create_data[1]==None and len(create_data[1])==2:
+                    sw = w * create_data[1][0] * 0.5
+                    sh = h * create_data[1][1] * 0.5
+                    temp_bbox[0] = oy - sh
+                    temp_bbox[1] = ox - sw
+                    temp_bbox[2] = oy + sh
+                    temp_bbox[3] = ox + sh
+                    print(f"Scaling    : {create_data[1]}")
+                    print(f"Temp box(s): {temp_bbox}")
+                if not create_data[2]==None and len(create_data[2])==4:
+                    temp_bbox[0] = temp_bbox[0] - create_data[2][1]
+                    temp_bbox[1] = temp_bbox[1] - create_data[2][0]
+                    temp_bbox[2] = temp_bbox[2] + create_data[2][3]
+                    temp_bbox[3] = temp_bbox[3] + create_data[2][2]
+                    print(f"Padding    : {create_data[2]}")
+                    print(f"Temp box(p): {temp_bbox}")
+                if not clamp_vals==None and len(clamp_vals)==4:
+                    temp_bbox[0] = max(temp_bbox[0], clamp_vals[0])
+                    temp_bbox[1] = max(temp_bbox[1], clamp_vals[1])
+                    temp_bbox[2] = min(temp_bbox[2], clamp_vals[2])
+                    temp_bbox[3] = min(temp_bbox[3], clamp_vals[3])
+                    print(f"Clamped    : {clamp_vals}")
+                    print(f"Temp box(c): {temp_bbox}")                    
 
+                new_bbox.append(temp_bbox[1])
+                new_bbox.append(temp_bbox[0])
+                new_bbox.append(temp_bbox[3])
+                new_bbox.append(temp_bbox[2])
+    return new_bbox
 
 # Set the expected directory paths ro base images, densepose images and json files
 def setDirectories(in_root_dir, out_root_dir):
@@ -502,7 +576,7 @@ def showImageAndMaskDetail(key,
 ##########################################################################################################
 
 ## Initialise SAM parameters
-setup_sam      = True
+setup_sam      = False
 sam_checkpoint = "./checkpoints/sam_vit_h_4b8939.pth"
 sam_model      = "vit_h"
 sam_device     = "cuda"
@@ -558,15 +632,30 @@ try:
     if not OK:
         raise ScriptException("Failed to read in file data!")
 
+    #print(f"PRE-RESCALE: {skeleton}")
+
     OK, dens_image, image_metrics, body_parts, skeleton = doImageCheckingAndRescaling(base_image, 
                                                                                       dens_image, 
                                                                                       grouping,
                                                                                       image_metrics, 
                                                                                       body_parts, 
                                                                                       skeleton)
+      
     if not OK:
         raise ScriptException("Failed to rescale image or image metrics correctly!")
  
+    #print(f"POST-RESCALE: {skeleton}")
+
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup['AI_POINTS'] = [[0, 100], [100,100], [200,200], [200,400]]
+    sam_setup['AE_POINTS'] = [[234, 123],[111.112]]
+    sam_setup['RI_POINTS'] = [[0.1, 0.1],[0.2, 0.3],[0.3, 0.4]]
+    sam_setup['RE_POINTS'] = [[0.9, 0.9],[0.8, 0.7],[0.7, 0.6]]
+    sam_setup['SI_POINTS'] = [["HEAD", 0.5], ["TORS", 0.2]]
+    sam_setup['BBOX'] = ["2-Torso-Front", [1.0,1.0], [10.0,20.0,10.0,20.0]]
+    points, labels, bbox, mask, multi_out, force_multi = createSAMinputs(sam_setup, image_metrics, body_parts, skeleton, verbose = True)
+     
+    
     # OK, Now we should be able to start doing something with SAM
     if is_sam_OK == True:
         print("SAM OK!")
