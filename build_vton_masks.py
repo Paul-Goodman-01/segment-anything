@@ -28,13 +28,20 @@ def addBufferToMask(mask, buffer_size=5):
     buffered_mask = binary_dilation(mask, iterations=buffer_size)
     return buffered_mask
 
-# Check that required directories exist
-def checkDirectories(base, dens, json, out):
-    return os.path.exists(base) and os.path.exists(dens) and os.path.exists(json) and os.path.exists(out)
-
-# Check that required directories exist
-def checkDirectories(base, dens, json, out):
-    return os.path.exists(base) and os.path.exists(dens) and os.path.exists(json) and os.path.exists(out)
+def checkInputRescaling(inputs, template):
+    OK = True
+    if pu.isValidDict(inputs) and pu.isValidDict(template):
+        if pu.doListsMatch(list(inputs.keys()), template['INPUT_KEYS']):
+            print("Passed lists matching..")
+            
+            type_list = getInputFileTypes(inputs)
+            want_list = ["<class 'numpy.ndarray'>","<class 'numpy.ndarray'>","<class 'dict'>"]
+            print(f"Type list {type_list}")
+            print(f"Want list {want_list}")
+            if type_list == want_list:
+                      
+                doInputCheckingAndRescaling(inputs)
+    return OK
 
 def countNonBlackPixels(image):
     grayscale_image = ski.color.rgb2gray(image)
@@ -75,10 +82,17 @@ def createColouredImage(image, colour=(0, 0, 0)):
     return coloured_image
 
 def createLowestThresholdMask(mask, T_value):
-    head_oobb = getMaskOOBB(mask, flip=False)
-    print(f"Head_OOBB: {head_oobb}")
-   
-   
+    if T_value>=0.0 and T_value <= 1.0: 
+        head_oobb = getMaskOOBB(mask, flip=True)
+        ys = [point[1] for point in head_oobb]
+        min_y = min(ys)
+        range_y = max(ys) - min_y
+        print(f"Mask shape: {mask.shape}, length: {len(mask)}, Type: {type(mask)}")
+        print(f"Head_OOBB: {head_oobb}, MinY: {min_y}, Range: {range_y}")
+        threshold = round(min_y + (T_value * range_y))
+        new_mask = np.zeros_like(mask)
+        new_mask[threshold:, :] = mask[threshold:, :]
+        return new_mask
 
 def createMaskedImage(original_image, mask_image, back_colour='black', rep_colour=None):
     back_image = createColouredImage(original_image, colour=back_colour)
@@ -89,102 +103,20 @@ def createMaskedImage(original_image, mask_image, back_colour='black', rep_colou
     composite_image = ski.img_as_ubyte(composite_image)
     return composite_image
 
-def createSAMinputs(create_props, image_metrics, body_parts, skeleton, verbose=False):
-    points      = []
-    labels      = []
-    bbox        = None
-    mask        = None
-    multi_out   = True
-    force_multi = False
-
-    #check dictionary keys
-    if not create_props['AI_POINTS'] == None:
-        print("Adding AI points")
-        new_points, new_labels = samProcessAbsolutePoints(create_props['AI_POINTS'], True)
-        if isValidList(new_points) and isValidList(new_labels):
-            points.extend(new_points)
-            labels.extend(new_labels)
-
-    if not create_props['RI_POINTS'] == None:
-        print("Adding RI points")
-        new_points, new_labels = samProcessRelativePoints(create_props['RI_POINTS'], image_metrics, True)
-        if isValidList(new_points) and isValidList(new_labels):
-            points.extend(new_points)
-            labels.extend(new_labels)
-
-    if not create_props['AE_POINTS'] == None:
-        print("Adding AE points")
-        new_points, new_labels = samProcessAbsolutePoints(create_props['AE_POINTS'], False)
-        if isValidList(new_points) and isValidList(new_labels):
-            points.extend(new_points)
-            labels.extend(new_labels)
-
-    if not create_props['RE_POINTS'] == None:
-        print("Adding RE points")
-        new_points, new_labels = samProcessRelativePoints(create_props['RE_POINTS'], image_metrics, False)
-        if isValidList(new_points) and isValidList(new_labels):
-            points.extend(new_points)
-            labels.extend(new_labels)
-
-    if not create_props['SI_POINTS'] == None:
-        print("Adding SI points")
-        new_points, new_labels = samProcessSkeletonPoints(create_props['SI_POINTS'], skeleton, True)
-        if isValidList(new_points) and isValidList(new_labels):
-            points.extend(new_points)
-            labels.extend(new_labels)
-
-    if not create_props['SE_POINTS'] == None:
-        print("Adding SE points")
-        new_points, new_labels = samProcessSkeletonPoints(create_props['SE_POINTS'], skeleton, False)
-        points.extend(new_points)
-        labels.extend(new_labels)
-
-    if not create_props['BBOX'] == None:
-        print("Adding Bounding Box")
-        bbox = samProcessBoundingBox(create_props['BBOX'], body_parts, [0, 0, image_metrics['IM_SHAPE'][1], image_metrics['IM_SHAPE'][0]])
-        
-    if not create_props['MASK'] == None:
-        print("Adding Mask")
-        mask = create_props['MASK']
-    
-    multi_out = create_props['MULTI_OUT'] 
-    print(f"Set multimask output to {multi_out}")
-
-    if not create_props['FORCE_MULTI'] == None:
-        if create_props['FORCE_MULTI']>=0 and create_props['FORCE_MULTI']<=2:
-            force_multi = create_props['FORCE_MULTI']
-            print(f"Set forced multimask return to {force_multi}")
-        
-    if len(points)>0 and len(labels)>0 and len(points)==len(labels):
-        points = np.array(points)
-        labels = np.array(labels)
-    else:
-        points = None
-        labels = None
-
-    if not bbox==None:
-        bbox = np.array(bbox)
-
-    if verbose==True:
-        print("----------------------------------------------")
-        print("Created SAM inputs:")
-        print(f"Points : {points}")
-        print(f"Labels : {labels}")   
-        print(f"B-Box  : {bbox}")   
-        print(f"Mask   : {mask}")   
-        print(f"Multi  : {multi_out}")   
-        print(f"Forced : {force_multi}")           
-        print("----------------------------------------------")
-
-    return points, labels, bbox, mask, multi_out, force_multi
-
-def doImageCheckingAndRescaling(base, dens, grouping, image_metrics, body_metrics, skeleton_metrics):
-    OK = False
-    # Get the shapes of the two images
-    base_shape = base.shape
-    dens_shape = dens.shape
-    json_shape = (image_metrics['IM_SHAPE'][0], image_metrics['IM_SHAPE'][1], 3)
-    json_normalised = body_metrics[next(iter(grouping))]['NORMALISED']
+#NB: Processing of the inputs is done by reference, changing the originals 
+def doInputCheckingAndRescaling(inputs):
+    OK = True
+    # Get required parameters from the images and json file
+    grouping        = ccg.group_mode_dict[inputs['2_JSON']['BODY_PARTS']['GR_MODE']]
+    base_image      = inputs['0_BASE']
+    dens_image      = inputs['1_ADD_IMAGE']
+    base_shape      = base_image.shape
+    dens_shape      = dens_image.shape 
+    image_metrics   = inputs['2_JSON']['IMAGE_DATA']
+    body_metrics    = inputs['2_JSON']['BODY_PARTS']
+    skeleton        = inputs['2_JSON']['SKELETON']
+    json_shape      = (inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][0], inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][1], 3)
+    json_normalised = inputs['2_JSON']['BODY_PARTS'][next(iter(grouping))]['NORMALISED']
     print(f"Base image shape     : {base_shape}")
     print(f"Densepose mask shape : {dens_shape}")
     print(f"JSON metrics shape   : {json_shape}")
@@ -195,76 +127,32 @@ def doImageCheckingAndRescaling(base, dens, grouping, image_metrics, body_metric
     if json_normalised == False:
         if not base_shape == dens_shape:
             print("Image shapes do not match, and mask metrics cannot be rescaled!")
+            OK = False
         else: 
             print("Images are of correct shape, and metrics do not need to be rescaled")
-            OK = True
     else:
         print("Resizing densepose mask image to match base image, and rescaling mask metrics")
         new_image_metrics    = df.getRescaledImageMetrics(image_metrics, base_shape[1], base_shape[0]) 
         new_body_metrics     = df.getRescaledResults(body_metrics, base_shape[1], base_shape[0])
-        new_skeleton_metrics = skel.skeletonGetRescaledBones(skeleton, base_shape[1], base_shape[0])
-        dens_image = ski.transform.resize(dens, (base_shape[0], base_shape[1]), anti_aliasing=False)
-        dens_image = ski.img_as_ubyte(dens_image)
-        dens_shape = dens_image.shape
-        json_shape = (new_image_metrics['IM_SHAPE'][0], new_image_metrics['IM_SHAPE'][1], 3)
-        json_normalised = new_body_metrics[next(iter(grouping))]['NORMALISED']
-                
-        print(f"Base image shape     : {base_shape}")
-        print(f"Densepose mask shape : {dens_shape}")
-        print(f"JSON metrics shape   : {json_shape}")
-        print(f"Normalised metrics?  : {json_normalised}")
-        OK = True
-        return OK, dens_image, new_image_metrics, new_body_metrics, new_skeleton_metrics
+        new_skeleton         = skel.skeletonGetRescaledBones(skeleton, base_shape[1], base_shape[0])
+        dens_image           = ski.transform.resize(dens_image, (base_shape[0], base_shape[1]), anti_aliasing=False)
+        dens_image           = ski.img_as_ubyte(dens_image)
 
-    return OK, dens_image, image_metrics, body_metrics, skeleton_metrics
-
-def doSAMInference(image_metrics, body_parts, skeleton, sam_predictor, base_image, sam_setup, verbose=False, show_results=False):
-    result = None
-    setSAMImage(sam_predictor, base_image)
-    points, labels, bbox, mask, multi_out, force_multi = createSAMinputs(sam_setup, image_metrics, body_parts, skeleton, verbose = verbose)
-    
-    masks =[]
-    scores=[]
-    logits=[]
-
-    if isValidNpArray(points):    
-        masks, scores, logits = sam_predictor.predict(
-            point_coords=points,
-            point_labels=labels,
-            mask_input=mask,
-            box=bbox,
-            multimask_output=multi_out
-        )
+        inputs['1_ADD_IMAGE']          = dens_image
+        inputs['2_JSON']['IMAGE_DATA'] = new_image_metrics
+        inputs['2_JSON']['BODY_PARTS'] = new_body_metrics
+        inputs['2_JSON']['SKELETON']   = new_skeleton        
         
-    if len(masks)>0:
-        if multi_out==True: #Return highest score mask
-            if not force_multi:
-                idx = np.argmax(scores)
-                print(f"Selected mask idx: {idx}")
-                result = masks[np.argmax(scores)]
-            else:
-                result = masks[force_multi]
-        else:
-            result = masks[0]
-
-        # Mask image post-processing goes here
-        if not sam_setup['ADD_BUFFER']==None and sam_setup['ADD_BUFFER']>0:
-            result = addBufferToMask(result, sam_setup['ADD_BUFFER'])
-
-        if sam_setup['FILL_HOLES']==True:
-            result = binary_fill_holes(result, structure=disk(10))
-
-        if show_results==True:
-            showImageAndMaskDetail("Test",
-                                   base_image, 
-                                   masks, 
-                                   scores, 
-                                   points, 
-                                   bbox, 
-                                   labels, 
-                                   "Test SAM")                 
-
-    return result
+        dens_shape      = inputs['1_ADD_IMAGE'].shape
+        json_shape      = (inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][0], inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][1], 3)
+        json_normalised = inputs['2_JSON']['BODY_PARTS'][next(iter(grouping))]['NORMALISED']
+   
+        print(f"Rescaled Base image shape     : {base_shape}")
+        print(f"Rescaled Densepose mask shape : {dens_shape}")
+        print(f"Rescaled JSON metrics shape   : {json_shape}")
+        print(f"Normalised metrics?           : {json_normalised}")
+    
+    return OK
 
 def doPreprocessImage(image, show_image=False):
     #Get all non white pixels in the image.
@@ -313,20 +201,28 @@ def getBinaryMaskWithTolerance(image, colour, tolerance=20):
     return binary_mask, colour
 
 # Gets a composite bounding box based on a number of body parts 
-def getCompositeBoundingBox(body_parts, body_part, max_parts=100):
+def getCompositeBoundingBox(body_parts, part_list, max_parts=100):
     result = None
-    if body_part in body_parts.keys() and max_parts>0:
-        bbox_list = body_parts[body_part]['BBOXS']
-        if not bbox_list==None and len(bbox_list)>0: 
-            if max_parts>len(bbox_list):
-                bbox_list = bbox_list[:max_parts]    
+    if pu.isValidList(part_list):
+        temp_boxes = []
+        for body_part in part_list:
+            if body_part in body_parts.keys() and max_parts>0:
+                bbox_list = body_parts[body_part]['BBOXS']
+                if not bbox_list==None and len(bbox_list)>0: 
+                    if max_parts<len(bbox_list):
+                        temp_boxes.extend(bbox_list)
+                    else:
+                        temp_boxes.extend(bbox_list[:max_parts])    
+
+        if pu.isValidList(temp_boxes):                
             min_X = min_Y = math.inf
             max_X = max_Y = -math.inf
-            for bbox in bbox_list:
+            for bbox in temp_boxes:
                 min_Y = min(min_Y, bbox[0])
                 min_X = min(min_X, bbox[1])
                 max_Y = max(max_Y, bbox[2])
                 max_X = max(max_X, bbox[3])
+            
             if min_X < math.inf:
                 result = [min_Y, min_X, max_Y, max_X]
     return result
@@ -348,7 +244,15 @@ def getEllipseMask(image, center, axes_lengths, angle_degrees):
     return filled_mask
 
 # Create a composite mask based on lookup of body parts by densepose grouping dictionary key
-def getGroupMask(image, group_name, mask_buffer=0, verbose = False):
+def getGroupMask(image, 
+                 group_name, 
+                 group_mode='RAW', 
+                 input_mode='CVTON', 
+                 mask_buffer=0, 
+                 verbose = False):
+    
+    grouping         = ccg.group_mode_dict[group_mode]
+    input_colours    = ccg.input_mode_dict[input_mode]
     composite_mask = np.zeros((image.shape[0], image.shape[1]), dtype=bool)
     group_idxs = grouping[group_name]  
     
@@ -418,6 +322,14 @@ def getFilenameTriple(base, dens_files, json_files):
 
     return OK, dens_file, json_file
 
+# Get a list of the read in data types from an input list
+def getInputFileTypes(inputs):
+    type_list = []
+    if pu.isValidDict(inputs):
+        for _, item in inputs.items():
+            type_list.append(str(type(item)))
+    return type_list  
+
 # Gets an OOBB for a given mask image using cv2
 def getMaskOOBB(mask, flip=False):
     points = np.array(maskToPoints(mask), dtype=np.float32)
@@ -454,30 +366,6 @@ def initSegmentAnythingModel(model, checkpoint, device):
 
     return OK, sam, predictor
 
-def isValidDict(my_dict):
-    if not isinstance(my_dict, list):
-        return False
-    elif len(my_dict)==0:  # Empty dict
-        return False
-    else:
-        return True
-
-def isValidList(my_list):
-    if not isinstance(my_list, list):
-        return False
-    elif len(my_list)==0:  # Empty list
-        return False
-    else:
-        return True
-
-def isValidNpArray(my_list):
-    if not isinstance(my_list, np.ndarray):
-        return False
-    elif len(my_list)==0:  # Empty list
-        return False
-    else:
-        return True
-
 # Convert an image mask to a numpy array of white pixels
 def maskToPoints(mask):
     # Find white pixels in the mask
@@ -508,6 +396,36 @@ def moveOOBB(obb_coords, displacement):
 
     return moved_obb_coords
 
+# Read in all required fiels
+def readAssociatedFiles(base_file, additional_files):
+    files = {}
+    try:
+        print(f"Reading base image file: '{base_file}'")
+        files['0_BASE'] = ski.io.imread(base_file)
+        
+        if pu.isValidList(additional_files):
+            for i, add_file in enumerate(additional_files):
+                # Get the extension of the file
+                ext = os.path.splitext(add_file)[1]
+                #print (f"File load on extension {ext}")
+                if (ext == '.json'):
+                    print(f"Reading image json file: '{add_file}'")
+                    with open(add_file, 'r') as file:
+                        key = str(i+1) + '_JSON' 
+                        files[key] = json.load(file)
+                    
+                else:
+                    print(f"Reading add image file : '{add_file}'")
+                    key = str(i+1) + '_ADD_IMAGE'
+                    files[key] = ski.io.imread(add_file)       
+            
+    except Exception as e:
+        print(f"ERROR!: Failed to read inputs associated with '{base_file}'")
+        pu.dumpException(e)    
+        pass
+
+    return files
+
 # Read the combination of base image, denspose image and json file
 def readFileTriple(base_filename, dens_filename, json_filename):
     OK = False
@@ -531,6 +449,170 @@ def readFileTriple(base_filename, dens_filename, json_filename):
         pu.dumpException(e)
 
     return OK, base_image, dens_image, image_metrics, body_parts, skeleton
+
+def samCreateCompatibleInputs(create_props, 
+                    image_metrics = None, 
+                    body_parts    = None, 
+                    skeleton      = None, 
+                    verbose       = False):
+    
+    points      = []
+    labels      = []
+    bbox        = None
+    mask        = None
+    multi_out   = True
+    force_multi = False
+
+    #check dictionary keys
+    if not create_props['AI_POINTS'] == None:
+        print("Adding AI points")
+        new_points, new_labels = samProcessAbsolutePoints(create_props['AI_POINTS'], True)
+        if pu.isValidList(new_points) and pu.isValidList(new_labels):
+            points.extend(new_points)
+            labels.extend(new_labels)
+
+    if not create_props['RI_POINTS'] == None and not image_metrics == None:
+        print("Adding RI points")
+        new_points, new_labels = samProcessRelativePoints(create_props['RI_POINTS'], image_metrics, True)
+        if pu.isValidList(new_points) and pu.isValidList(new_labels):
+            points.extend(new_points)
+            labels.extend(new_labels)
+
+    if not create_props['AE_POINTS'] == None:
+        print("Adding AE points")
+        new_points, new_labels = samProcessAbsolutePoints(create_props['AE_POINTS'], False)
+        if pu.isValidList(new_points) and pu.isValidList(new_labels):
+            points.extend(new_points)
+            labels.extend(new_labels)
+
+    if not create_props['RE_POINTS'] == None and not image_metrics == None:
+        print("Adding RE points")
+        new_points, new_labels = samProcessRelativePoints(create_props['RE_POINTS'], image_metrics, False)
+        if pu.isValidList(new_points) and pu.isValidList(new_labels):
+            points.extend(new_points)
+            labels.extend(new_labels)
+
+    if not create_props['SI_POINTS'] == None and not skeleton == None:
+        print("Adding SI points")
+        new_points, new_labels = samProcessSkeletonPoints(create_props['SI_POINTS'], skeleton, True)
+        if pu.isValidList(new_points) and pu.isValidList(new_labels):
+            points.extend(new_points)
+            labels.extend(new_labels)
+
+    if not create_props['SE_POINTS'] == None and not skeleton == None:
+        print("Adding SE points")
+        new_points, new_labels = samProcessSkeletonPoints(create_props['SE_POINTS'], skeleton, False)
+        points.extend(new_points)
+        labels.extend(new_labels)
+
+    if not create_props['BBOX'] == None and not image_metrics == None and not body_parts == None:
+        print("Adding Bounding Box")
+        bbox = samProcessBoundingBox(create_props['BBOX'], body_parts, [0, 0, image_metrics['IM_SHAPE'][1], image_metrics['IM_SHAPE'][0]])
+        
+    if not create_props['MASK'] == None:
+        print("Adding Mask")
+        mask = create_props['MASK']
+    
+    multi_out = create_props['MULTI_OUT'] 
+    print(f"Set multimask output to {multi_out}")
+
+    if not create_props['FORCE_MULTI'] == None:
+        if create_props['FORCE_MULTI']>=0 and create_props['FORCE_MULTI']<=2:
+            force_multi = create_props['FORCE_MULTI']
+            print(f"Set forced multimask return to {force_multi}")
+        
+    if len(points)>0 and len(labels)>0 and len(points)==len(labels):
+        points = np.array(points)
+        labels = np.array(labels)
+    else:
+        points = None
+        labels = None
+
+    if not bbox==None:
+        bbox = np.array(bbox)
+
+    if verbose==True:
+        print("----------------------------------------------")
+        print("Created SAM inputs:")
+        print(f"Points : {points}")
+        print(f"Labels : {labels}")   
+        print(f"B-Box  : {bbox}")   
+        print(f"Mask   : {mask}")   
+        print(f"Multi  : {multi_out}")   
+        print(f"Forced : {force_multi}")           
+        print("----------------------------------------------")
+
+    return points, labels, bbox, mask, multi_out, force_multi
+
+def samDoInference(layer,
+                   sam_predictor,
+                   sam_setup,
+                   base_image,
+                   image_metrics = None, 
+                   body_parts = None, 
+                   skeleton = None, 
+                   verbose=False, 
+                   show_intermediate_results=False, 
+                   show_final_result=False):
+    result = None
+    setSAMImage(sam_predictor, base_image)
+    points, labels, bbox, mask, multi_out, force_multi = samCreateCompatibleInputs(sam_setup, 
+                                                                                   image_metrics, 
+                                                                                   body_parts, 
+                                                                                   skeleton, 
+                                                                                   verbose = verbose)
+    
+    masks =[]
+    scores=[]
+    logits=[]
+
+    if pu.isValidNpArray(points):    
+        masks, scores, logits = sam_predictor.predict(
+            point_coords=points,
+            point_labels=labels,
+            mask_input=mask,
+            box=bbox,
+            multimask_output=multi_out
+        )
+        
+    if len(masks)>0:
+        if multi_out==True: #Return highest score mask
+            if not force_multi:
+                idx = np.argmax(scores)
+                print(f"Selected mask idx: {idx}")
+                result = masks[np.argmax(scores)]
+            else:
+                result = masks[force_multi]
+        else:
+            result = masks[0]
+
+        # Mask image post-processing goes here
+        if not sam_setup['ADD_BUFFER']==None and sam_setup['ADD_BUFFER']>0:
+            result = addBufferToMask(result, 
+                                     sam_setup['ADD_BUFFER'])
+
+        if sam_setup['FILL_HOLES']==True:
+            result = binary_fill_holes(result, 
+                                       structure=disk(10))
+
+        if show_intermediate_results==True:
+            showImageAndMaskDetail(layer,
+                                   base_image, 
+                                   masks, 
+                                   scores, 
+                                   points, 
+                                   bbox, 
+                                   labels, 
+                                   image_metrics['FILE'])                 
+
+        if show_final_result==True:
+            showImageAndMask(base_image,
+                             base_image,
+                             result,
+                             title = f"Final result mask: {layer}",
+                             win_title = image_metrics['FILE'])
+
+    return result
 
 def samProcessAbsolutePoints(create_data, include):
     new_points = None
@@ -574,39 +656,38 @@ def samProcessSkeletonPoints(create_data, skeleton, include):
 def samProcessBoundingBox(create_data, body_parts, clamp_vals=None):
     new_bbox   = None
     if not create_data == None and len(create_data)>0:
-        if create_data[0] in body_parts.keys():
-            temp_bbox = getCompositeBoundingBox(body_parts, create_data[0])
-            if not temp_bbox==None:
-                new_bbox = []
-                ox = round((temp_bbox[1]+temp_bbox[3])*0.5)
-                oy = round((temp_bbox[0]+temp_bbox[2])*0.5)
-                w  = temp_bbox[3]-temp_bbox[1]
-                h  = temp_bbox[2]-temp_bbox[0]
-                #print(f"Box origin : [{ox}, {oy}], width: {w}, height: {h} ")
-                #print(f"Temp box   : {temp_bbox}")
-                if not create_data[1]==None and len(create_data[1])==2:
-                    sw = w * create_data[1][0] * 0.5
-                    sh = h * create_data[1][1] * 0.5
-                    temp_bbox[0] = ox - sw
-                    temp_bbox[1] = oy - sh
-                    temp_bbox[2] = ox + sw
-                    temp_bbox[3] = oy + sh
-                    #print(f"Scaling    : {create_data[1]}")
-                    #print(f"Temp box(s): {temp_bbox}")
-                if not create_data[2]==None and len(create_data[2])==4:
-                    temp_bbox[0] = temp_bbox[0] - create_data[2][0]
-                    temp_bbox[1] = temp_bbox[1] - create_data[2][1]
-                    temp_bbox[2] = temp_bbox[2] + create_data[2][2]
-                    temp_bbox[3] = temp_bbox[3] + create_data[2][3]
-                    #print(f"Padding    : {create_data[2]}")
-                    #print(f"Temp box(p): {temp_bbox}")
-                if not clamp_vals==None and len(clamp_vals)==4:
-                    temp_bbox[0] = max(temp_bbox[0], clamp_vals[0])
-                    temp_bbox[1] = max(temp_bbox[1], clamp_vals[1])
-                    temp_bbox[2] = min(temp_bbox[2], clamp_vals[2])
-                    temp_bbox[3] = min(temp_bbox[3], clamp_vals[3])
-                    #print(f"Clamped    : {clamp_vals}")
-                    #print(f"Temp box(c): {temp_bbox}")                    
+        temp_bbox = getCompositeBoundingBox(body_parts, create_data[0])
+        if not temp_bbox==None:
+            new_bbox = []
+            ox = round((temp_bbox[1]+temp_bbox[3])*0.5)
+            oy = round((temp_bbox[0]+temp_bbox[2])*0.5)
+            w  = temp_bbox[3]-temp_bbox[1]
+            h  = temp_bbox[2]-temp_bbox[0]
+            #print(f"Box origin : [{ox}, {oy}], width: {w}, height: {h} ")
+            #print(f"Temp box   : {temp_bbox}")
+            if not create_data[1]==None and len(create_data[1])==2:
+                sw = w * create_data[1][0] * 0.5
+                sh = h * create_data[1][1] * 0.5
+                temp_bbox[0] = ox - sw
+                temp_bbox[1] = oy - sh
+                temp_bbox[2] = ox + sw
+                temp_bbox[3] = oy + sh
+                #print(f"Scaling    : {create_data[1]}")
+                #print(f"Temp box(s): {temp_bbox}")
+            if not create_data[2]==None and len(create_data[2])==4:
+                temp_bbox[0] = temp_bbox[0] - create_data[2][0]
+                temp_bbox[1] = temp_bbox[1] - create_data[2][1]
+                temp_bbox[2] = temp_bbox[2] + create_data[2][2]
+                temp_bbox[3] = temp_bbox[3] + create_data[2][3]
+                #print(f"Padding    : {create_data[2]}")
+                #print(f"Temp box(p): {temp_bbox}")
+            if not clamp_vals==None and len(clamp_vals)==4:
+                temp_bbox[0] = max(temp_bbox[0], clamp_vals[0])
+                temp_bbox[1] = max(temp_bbox[1], clamp_vals[1])
+                temp_bbox[2] = min(temp_bbox[2], clamp_vals[2])
+                temp_bbox[3] = min(temp_bbox[3], clamp_vals[3])
+                #print(f"Clamped    : {clamp_vals}")
+                #print(f"Temp box(c): {temp_bbox}")                    
 
                 new_bbox.append(temp_bbox)
     return new_bbox
@@ -650,7 +731,7 @@ def showMask(mask, ax, colour=[0, 0, 255], opacity=0.6):
     
 # Show a series of SAM control points on an image - positive points in green, negative in red
 def showPoints(coords, labels, ax, marker_size=375):
-    if isValidNpArray(coords):
+    if pu.isValidNpArray(coords):
         pos_points = coords[labels==1]
         neg_points = coords[labels==0]
         #print(f"Plotting points : {coords}")
@@ -659,7 +740,7 @@ def showPoints(coords, labels, ax, marker_size=375):
     
 # Shows a box, defined as [x0, y0, x1, y1], on an image
 def showBox(box, ax):
-    if isValidNpArray(box):
+    if pu.isValidNpArray(box):
         #print(f"Box: {box}")
         x0 = min(box[0][0], box[0][2])
         y0 = min(box[0][1], box[0][3])
@@ -669,24 +750,31 @@ def showBox(box, ax):
 
 # Displays a list of boxes
 def showBoxes(boxes, ax):
-    if isValidNpArray(boxes):
+    if pu.isValidNpArray(boxes):
         for box in boxes:
             showBox(box, ax)
 
 # Displays a mask on a base image 
 def showImageAndMask(base_image, 
+                     second_image, 
                      mask = None, 
                      title = None, 
                      win_title = None,
                      blackout = False):
-        plt.figure(figsize=(10,10))
+        #plt.figure(figsize=(10,10))
+        plt.subplot(1, 2, 1)
+        plt.imshow(base_image)
+        plt.title('Original Image')       
+        
+        plt.subplot(1, 2, 2)
         if not blackout:
-            plt.imshow(base_image)
+            plt.imshow(second_image)
         else:
             black_image = np.zeros((base_image.shape[0], base_image.shape[1], 3), dtype=np.uint8)
             plt.imshow(black_image)
-        
-        if isValidNpArray(mask):
+        plt.title('Image + Mask')
+
+        if pu.isValidNpArray(mask):
             showMask(mask, plt.gca(), colour=[255,255,0], opacity=0.6)
 
         if not title==None:
@@ -746,114 +834,217 @@ if setup_sam == True:
 
 ## Initialise input and grouping dictionaries
 input_mode       = "CVTON" # This sets the colours that define the masks - see 'DenseposeGroupingColours.py'
-input_colours    = ccg.input_mode_dict[input_mode]
-grouping_mode    = "RAW" # This sets how densepose 'fine' classifications are aggregated - see 'DenseposeGroupingColours.py'
-grouping         = ccg.group_mode_dict[grouping_mode]
-image_extensions = ["jpg", "png"]
 
 ##OK Let's just hardcode these directories for now as those for the 'detectron2' code locations
-root_dir = os.getcwd()
-parent_of_root = os.path.dirname(root_dir)
-in_root_dir = os.path.join(parent_of_root, "detectron2")
-base_dir, dens_dir, json_dir, out_dir = setDirectories(in_root_dir, root_dir)
+root_dir        = os.getcwd()
+parent_of_root  = os.path.dirname(root_dir)
+in_root_dir     = parent_of_root
+out_root_dir    = root_dir
+do_saves        = True
+do_input_saves  = False
 
-use_file_dialog = True
+use_random_file = False
+use_file_dialog = False
 
 try:
-    # Check to see if directories exist
-    if not checkDirectories(base_dir, dens_dir, json_dir, out_dir):
-        raise ScriptException("One or more required directories does not exist!")
-    
-    #OK Get file lists for each directory
-    base_list, dens_list, json_list = getDirectoryFileLists(base_dir, dens_dir, json_dir, image_extensions)
- 
-    #file_idx = 1
-    if not use_file_dialog: 
-        file_idx = random.randint(0, len(base_list)-1)
-        base_file = base_list[file_idx]
-        print(f"Random file selected: Base file: {file_idx} : '{base_file}'")
-    else:
+    # Set up the SAM template being used...
+    sam_template = spt.samBodyTemplateWithHands()
+   
+    if not pu.isValidDict(sam_template):
+        raise ScriptException("ERROR! : Could not retrieve a valid template dictionary!")        
+
+    # Create the base file list, either by dialog, or by reading the directory
+    if use_file_dialog==True:
         base_file = pu.getImageFileByDialog()
-        base_list = [base_file]
-        print(f"Files selected: {base_file}")
-    
-    for i, base_file in enumerate(base_list):
+        base_file_list = [base_file]
+        print(f"File selected: {base_file}")
+    else:
+        # Check that the base directory exists
+        add_in_dir = sam_template['BASE_IMAGE_INPUT_PATH']
+        base_dir = os.path.join(in_root_dir, add_in_dir)
+        base_file_format = sam_template['BASE_IMAGE_INPUT_FORMATS']
+        if not pu.checkDirectory(base_dir):
+            raise ScriptException(f"ERROR! : Input path '{base_dir}' does not exist!")
+        else: # Get the base file list
+            print(f"Base input directory set to: '{base_dir}'.")
+            base_file_list = pu.getFilesInDirectory(base_dir, base_file_format)
+            if use_random_file==True: # Pick a single file from the list
+               file_idx = random.randint(0, len(base_file_list)-1)
+               base_file = base_file_list[file_idx]
+               base_file_list = [base_file] 
 
-        OK, dens_file, json_file = getFilenameTriple(base_file, dens_list, json_list)
-        if not OK:
-            raise ScriptException("Matching .json or densepose file to base image failed!")
+    # Check to see if any further input directories exist and, if so, generate file lists for these 
+    # that match the base file list
+    extra_dirs   = sam_template['ADDITIONAL_INPUT_PATHS']
+    file_formats = sam_template['ADDITIONAL_INPUT_FORMATS'] 
+    extra_dir_files = {}
+    output_paths    = {}
+    if pu.isValidList(extra_dirs) and pu.isValidList(file_formats) and len(extra_dirs) == len(file_formats):
+        for dir, file_format in zip(extra_dirs, file_formats):
+            #print(f"In root '{in_root_dir}'...")
+            full_ext_dir = os.path.join(in_root_dir, dir)
+            #print(f"Checking '{full_ext_dir}'...")
+            if not pu.checkDirectory(full_ext_dir):
+                raise ScriptException(f"ERROR! : Additional required path '{dir}' does not exist!")
+            else:
+                print(f"Checking files in '{full_ext_dir}'")
+                match_file_list = []
+                temp_file_list = pu.getFilesInDirectory(full_ext_dir, file_format)
+                for base_file in base_file_list:
+                    match_file = pu.getMatchingFileList(base_file, temp_file_list)
+                    match_file_list.append(match_file)
+                extra_dir_files[dir] = match_file_list
+                #print(f"{extra_dir_files}")
+                if not pu.isValidDict(extra_dir_files):
+                    raise ScriptException(f"ERROR! Failed to build file dictionary for : '{dir}'!")
 
-        # OK We should have the files we need now... load 'em up
-        OK, base_image, dens_image, image_metrics, body_parts, skeleton = readFileTriple(base_file, 
-                                                                                        dens_file, 
-                                                                                        json_file)
-        if not OK:
-            raise ScriptException("Failed to read in file data!")
+    # Check and create output directories 
+    add_out_dirs = sam_template['OUTPUT_PATHS']
+    if pu.isValidList(add_out_dirs):
+        do_saves = True
+        if len(add_out_dirs)>1:
+            print(f"WARNING! : Multiple output paths read from template. Assuming we're saving inputs as outputs!")
+            do_input_saves = True
+        for i, path in enumerate(add_out_dirs):
+            full_output_path = os.path.join(out_root_dir, path)
+            if not pu.checkAndCreateDirectory(full_output_path):
+                raise ScriptException(f"ERROR! Failed to find and/or create output directory '{full_output_path}!'!")
+            else:
+                if i==0: #This is the output path for the mask
+                    output_paths["MASK"] = full_output_path
+                elif i==1: # This is the output path for the base_image
+                    output_paths["BASE"] = full_output_path
+                else:
+                    key = str(i-1) + "_ADD" 
+                    output_paths["key"] = full_output_path                
+    else:
+        print("WARNING! : Could not get output directories from template. Outputs will not be saved!")
+        do_saves = False
+        do_input_saves = False
+   
+    # Loop over all files in the base_file_list and try to proccess their masks
+    print(f"Processing a total of {len(base_file_list)} file(s).")
+    for i, base_file in enumerate(base_file_list):
+        print("--------------------------------------")
+        print(f"PROCESSING: Base file: '{base_file}'.")
 
-        #print(f"PRE-RESCALE: {skeleton}")
-
-        OK, dens_image, image_metrics, body_parts, skeleton = doImageCheckingAndRescaling(base_image, 
-                                                                                        dens_image, 
-                                                                                        grouping,
-                                                                                        image_metrics, 
-                                                                                        body_parts, 
-                                                                                        skeleton)
+        additional_files = []
+        for j, extra_dir in enumerate(extra_dir_files):
+            add_file_list = extra_dir_files[extra_dir]
+            add_file = add_file_list[i]
+            #print(f"Add file : '{add_file}'")
+            additional_files.append(add_file)
         
-        if not OK:
+        inputs = readAssociatedFiles(base_file, additional_files)   
+            
+        if not checkInputRescaling(inputs, sam_template)==True:
             raise ScriptException("Failed to rescale image or image metrics correctly!")
-    
-        #print(f"POST-RESCALE: {skeleton}")
     
         # OK, Now we should be able to start doing something with SAM
         if is_sam_OK == True:
             print("SAM OK!")
-
-            verbose = False
-            show_results = False
-
-            sam_template = spt.samBodyTemplateWithHands()
-            #print(sam_template)
-
+            verbose                   = False
+            show_intermediate_results = False
+            show_final_result         = False
+            show_final_composite      = True
+            stored_masks              = {}
+         
+            base_image                = pu.getSafeDictKey(inputs, ['0_BASE'])
+            dens_image                = pu.getSafeDictKey(inputs, ['1_ADD_IMAGE'])
+            image_metrics             = pu.getSafeDictKey(inputs, ['2_JSON','IMAGE_DATA'])
+            body_parts                = pu.getSafeDictKey(inputs, ['2_JSON','BODY_PARTS'])
+            skeleton                  = pu.getSafeDictKey(inputs, ['2_JSON','SKELETON'])
+                   
             if sam_template['BACKGROUND_TYPE'] == 'SOLID_FILL':
-                output_image = createColouredImage(base_image, colour=sam_template['BACKGROUND_COLOUR'])
+                output_image = createColouredImage(inputs['0_BASE'], colour=sam_template['BACKGROUND_COLOUR'])
             elif sam_template['BACKGROUND_TYPE'] == 'BASE_IMAGE':
-                output_image = base_image
+                output_image = inputs['0_BASE']
             else:
                 raise ScriptException("Unknown background type in output image!")
             
             # Process each mask key in turn
             process_order = sam_template['PROCESSING_ORDER']
-            if isValidList(process_order):
+            if pu.isValidList(process_order):
                 for layer in process_order:
                     print(f"Processing mask layer: {layer}")
                     sam_setup = sam_template[layer]
-                    mask_to_add = doSAMInference(image_metrics, 
+                    mask_to_add = samDoInference(layer,
+                                                 predictor,
+                                                 sam_setup,
+                                                 base_image,
+                                                 image_metrics, 
                                                  body_parts, 
                                                  skeleton, 
-                                                 predictor, 
-                                                 base_image, 
-                                                 sam_setup, 
                                                  verbose=verbose,
-                                                 show_results=show_results)
-                    
-                    if layer=="HEAD":
-                        head_mask = copy.copy(mask_to_add)
-                        head_oobb = getMaskOOBB(mask_to_add, flip=False)
-                        print(f"Head_OOBB: {head_oobb}")
+                                                 show_intermediate_results=show_intermediate_results,
+                                                 show_final_result = show_final_result)
+                                        
+                    if pu.isValidNpArray(mask_to_add):
+                        print("Adding part mask to output mask")
+                        output_image = createImageByAddingMask(output_image, 
+                                                               mask_to_add,
+                                                               mask_col = sam_setup['OUTPUT_COLOUR'])
 
+                        if sam_setup['STORE_MASK'] == True:
+                            stored_masks[layer] = copy.copy(mask_to_add)
+                            print("Storing part mask for further processing")
                     print("----------------------")                    
 
-                    if isValidNpArray(mask_to_add):
-                        output_image = createImageByAddingMask(output_image, 
-                                                               mask_to_add, 
-                                                               mask_col=sam_setup['OUTPUT_COLOUR'])
-
-                neck_mask = createLowestThresholdMask(head_mask, 0.5)
-                #output_image = createImageByAddingMask(output_image, 
-                #                                       neck_mask, 
-                #                                       mask_col=[0, 128, 0])
+                print(f"{sam_template.keys()}")
+                print(f"Stored masks dictionary valid? : {pu.isValidDict(stored_masks)}")
+                print(f"Stored mask dictionary keys    : {stored_masks.keys()}")
+                if "POST_PROCESSING" in sam_template.keys() and pu.isValidDict(stored_masks):
+                    print("Doing post-processing..")
+                    if "ADD_NECK" in sam_template["POST_PROCESSING"]:
+                        print("Attempting to add 'NECK' mask..")
+                        if "HEAD" in stored_masks.keys():
+                            neck_mask = createLowestThresholdMask(stored_masks['HEAD'], 0.6)
+                            output_image = createImageByAddingMask(output_image, 
+                                                                   neck_mask, 
+                                                                   mask_col=[0, 255, 0])
+                        else:
+                            print(f"WARNING ! : Couldn't find stored mask 'HEAD' in '{stored_masks}'!")
+                else: 
+                    print("No post-processing defined")
                 
-            showImageAndMask(output_image, win_title=base_file)
+                print("----------------------")
+            if show_final_composite==True:    
+                showImageAndMask(base_image, output_image, win_title=base_file)
+            print("----------------------")
+            
+            if do_saves==True:
+                file_title = pu.getFileTitle(base_file)
+                for dir_key, dir_item in output_paths.items():
+                    if dir_key == "MASK":
+                        output_filename = dir_item + '/' + file_title + ".png"
+                        out_data = output_image
+                        out_type = str(type(out_data))
+                    elif dir_key == "BASE": 
+                        output_filename = dir_item + '/' + file_title + ".png"
+                        out_data = base_image
+                        out_type = str(type(out_data))
+                    else:                        
+
+                    if out_type == "<class 'numpy.ndarray'>":       
+                        try:
+                            ski.io.imsave(output_filename, out_data)
+                            print(f"Saved '{output_filename}'.")
+                        except Exception as e:
+                            print(f"WARNING! : Failed to save image: {e}")
+                    elif out_type == "<class 'dict'>": 
+                        try:
+                            with open(output_filename, 'w') as json_file:
+                                json.dump(out_data, json_file, indent=4)
+                                print(f"Saved '{output_filename}'.")
+                        except Exception as e:
+                            print(f"WARNING! : Failed to save JSON file: {e}")
+
+
+                    
+
+        
+        
+        print("--------------------------------------")
 
 except ScriptException as e:
     print("EXIT : ", e)

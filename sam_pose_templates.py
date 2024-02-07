@@ -15,6 +15,7 @@ def getDefaultSAMInputDictionary():
     result['ADD_BUFFER'] = None
     result['FILL_HOLES'] = False
     result['OUTPUT_COLOUR'] = [0, 0, 0]
+    result['STORE_MASK'] = False
     return result
 
 semantic_cloth_labels = [
@@ -41,6 +42,20 @@ semantic_cloth_labels = [
 
 def samBodyTemplateWithHands():
     template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+    template['OUTPUT_PATHS'] = ["data/viton/data/image_parse_with_hands",
+                                "data/viton/data/images",
+                                "data/viton/data/image_densepose_parse",
+                                "data/viton/data/pose"]
+    template['RENAME_OUTPUT_FLIES'] = True
 
     # Setup Background
     template['BACKGROUND_TYPE'] = "SOLID_FILL"
@@ -77,16 +92,18 @@ def samBodyTemplateWithHands():
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup['SI_POINTS'] = [["HEAD", 0.1]]
     sam_setup["SE_POINTS"] = [["ARLO", 0.5],["ALLO",0.5],["ARLI",0.5],["ARLO", 0.5]]
+    sam_setup["BBOX"] = [["23-Head-Right","24-Head-Left"], [1.05, 1.7], None]
     sam_setup["MULTI_OUT"] = True
     sam_setup['OUTPUT_COLOUR'] = [128, 0, 192]
     sam_setup["ADD_BUFFER"] = 2
     sam_setup["FILL_HOLES"] = True
+    sam_setup["STORE_MASK"] = True
     template['HEAD'] = sam_setup
 
     # Left Hand definition
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup["SI_POINTS"] = [["HLLI", 0.5],["HLLO",0.5]]
-    sam_setup["BBOX"] = ["4-Hand-Left", [1.05, 1.05], None]
+    sam_setup["BBOX"] = [["4-Hand-Left"], [1.05, 1.05], None]
     sam_setup['OUTPUT_COLOUR'] = [128, 0, 64]
     sam_setup["ADD_BUFFER"] = 4
     sam_setup["FILL_HOLES"] = True
@@ -95,7 +112,7 @@ def samBodyTemplateWithHands():
     # Right Hand definition
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup["SI_POINTS"] = [["HRLI", 0.5],["HRLO",0.5]]
-    sam_setup["BBOX"] = ["3-Hand-Right", [1.05, 1.05], None]
+    sam_setup["BBOX"] = [["3-Hand-Right"], [1.05, 1.05], None]
     sam_setup['OUTPUT_COLOUR'] = [128, 128, 0]
     sam_setup["ADD_BUFFER"] = 4
     sam_setup["FILL_HOLES"] = True
@@ -105,6 +122,7 @@ def samBodyTemplateWithHands():
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup["SI_POINTS"] = [["ALLO", 0.15],["ALLO", 0.90],["HLLI",0.1],["HLLO",0.1]]
     sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARLO",0.5],["ARLI",0.5],["LLUF",0.1],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["15-Arm-Left-Upper-Inner", "17-Arm-Left-Upper-Outer","19-Arm-Left-Lower-Inner","21-Arm-Left-Lower-Outer"], [1.05, 1.05], None]
     sam_setup['OUTPUT_COLOUR'] = [128, 128, 64]
     sam_setup["ADD_BUFFER"] = 2
     sam_setup["FILL_HOLES"] = True
@@ -114,6 +132,7 @@ def samBodyTemplateWithHands():
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup["SI_POINTS"] = [["ARLO", 0.15],["ARLO", 0.95],["HRLI",0.1],["HRLO",0.1]]
     sam_setup["SE_POINTS"] = [["ALLO", 0.90],["ALLO",0.5],["ALLI",0.5],["LRUF",0.1],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["16-Arm-Right-Upper-Inner", "18-Arm-Right-Upper-Outer","20-Arm-Right-Lower-Inner","22-Arm-Right-Lower-Outer"], [1.05, 1.05], None]
     sam_setup['OUTPUT_COLOUR'] = [128, 128, 192]
     sam_setup["ADD_BUFFER"] = 2
     sam_setup["FILL_HOLES"] = True
@@ -128,6 +147,8 @@ def samBodyTemplateWithHands():
                                     "RIGHT_HAND",
                                     "TOP_GARMENT",
                                     "BOTTOM_GARMENT"]
+    
+    template["POST_PROCESSING"] = ["ADD_NECK"]
 
     return template        
 
