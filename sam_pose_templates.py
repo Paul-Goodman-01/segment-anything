@@ -2,6 +2,8 @@
 
 def getDefaultSAMInputDictionary():
     result = {}
+    result['IMAGE'] = '0_BASE'
+    result['MODE'] = 'ADDITIVE'
     result['AI_POINTS'] = None
     result['RI_POINTS'] = None
     result['AE_POINTS'] = None
@@ -51,11 +53,13 @@ def samBodyTemplateWithHands():
     template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
     template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
     template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
     template['OUTPUT_PATHS'] = ["data/viton/data/image_parse_with_hands",
                                 "data/viton/data/images",
                                 "data/viton/data/image_densepose_parse",
                                 "data/viton/data/pose"]
-    template['RENAME_OUTPUT_FLIES'] = True
+    template['RENAME_OUTPUT_FILES'] = True
 
     # Setup Background
     template['BACKGROUND_TYPE'] = "SOLID_FILL"
@@ -148,14 +152,211 @@ def samBodyTemplateWithHands():
                                     "TOP_GARMENT",
                                     "BOTTOM_GARMENT"]
     
-    template["POST_PROCESSING"] = ["ADD_NECK"]
+    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 255, 0]}}
 
     return template        
 
+def samTemplateImageParse():
+    template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = ["data/viton/data/image-parse"]
+    template['RENAME_OUTPUT_FILES'] = True
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [0, 0, 0]
+   
+    # Overall body definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 2
+    sam_setup['OUTPUT_COLOUR'] = [254, 0, 0]
+    template['BODY'] = sam_setup
+
+    # Top garment definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup['OUTPUT_COLOUR'] = [254, 85, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['TOP_GARMENT'] = sam_setup
+
+    # Bottom garment definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["LLUF",0.25],["LRUF",0.25],["TORS",0.95],["LLUF",0.5],["LRUF",0.5]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 1
+    sam_setup['OUTPUT_COLOUR'] =[85, 85, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['BOTTOM_GARMENT'] = sam_setup
+
+    # Head definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup['SI_POINTS'] = [["HEAD", 0.1]]
+    sam_setup["SE_POINTS"] = [["ARLO", 0.5],["ALLO",0.5],["ARLI",0.5],["ARLO", 0.5]]
+    sam_setup["BBOX"] = [["23-Head-Right","24-Head-Left"], [1.05, 1.7], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup['OUTPUT_COLOUR'] = [0, 0, 254]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    sam_setup["STORE_MASK"] = True
+    template['HEAD'] = sam_setup
+
+    # Left Hand definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["HLLI", 0.5],["HLLO",0.5]]
+    sam_setup["BBOX"] = [["4-Hand-Left", "15-Arm-Left-Upper-Inner", "17-Arm-Left-Upper-Outer","19-Arm-Left-Lower-Inner","21-Arm-Left-Lower-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [85, 254, 169]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_HAND'] = sam_setup
+
+    # Right Hand definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["HRLI", 0.5],["HRLO",0.5]]
+    sam_setup["BBOX"] = [["3-Hand-Right","16-Arm-Right-Upper-Inner", "18-Arm-Right-Upper-Outer","20-Arm-Right-Lower-Inner","22-Arm-Right-Lower-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [0, 254, 254]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_HAND'] = sam_setup
     
+    #Mask building order
+    template['PROCESSING_ORDER'] = ["BODY", 
+                                    "HEAD",
+                                    "LEFT_HAND",
+                                    "RIGHT_HAND",
+                                    "TOP_GARMENT",
+                                    "BOTTOM_GARMENT"]
+    
+    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 0, 0]}}
 
+    return template  
 
+def samTemplateGarment():
+    template = {}
 
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = ["data/viton/data/cloth"]
+    
+    template['RENAME_OUTPUT_FILES'] = True
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [255, 255, 255]
+    
+    # Torso definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"]  = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"]  = True
+    sam_setup['MODE']       = "BASE_MASK"
+    sam_setup["ADD_BUFFER"] = 0
+    sam_setup["FILL_HOLES"] = True
+    template['TOP_GARMENT'] = sam_setup
+
+    #Mask building order
+    template['PROCESSING_ORDER'] = ["TOP_GARMENT"]
+    
+    return template           
+
+def samTemplateGarmentMask():
+    template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = ["data/viton/data/cloth-mask"]
+    
+    template['RENAME_OUTPUT_FILES'] = True
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [0, 0, 0]
+    
+    # Torso definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"]  = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"]  = True
+    sam_setup['OUTPUT_COLOUR'] = [255, 255, 255]
+    sam_setup["ADD_BUFFER"] = 0
+    sam_setup["FILL_HOLES"] = True
+    template['TOP_GARMENT'] = sam_setup
+
+    #Mask building order
+    template['PROCESSING_ORDER'] = ["TOP_GARMENT"]
+    
+    return template
+
+def samTemplateGarmentAgnostic32():
+    template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = ["data/viton/data/cloth-mask"]
+    
+    template['RENAME_OUTPUT_FILES'] = True
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [255, 255, 255]
+    
+    # Overall body definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 2
+    sam_setup['MODE'] = "BASE_MASK"
+    template['BODY'] = sam_setup
+
+    # Torso definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"]  = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"]  = True
+    sam_setup['OUTPUT_COLOUR'] = [128, 128, 128]
+    sam_setup["ADD_BUFFER"] = 15
+    sam_setup["FILL_HOLES"] = True
+    template['TOP_GARMENT'] = sam_setup
+
+    #Mask building order
+    template['PROCESSING_ORDER'] = ["BODY", "TOP_GARMENT"]
+    
+    return template
 
 
            
