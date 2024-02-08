@@ -42,6 +42,170 @@ semantic_cloth_labels = [
         [0, 0, 64],
         [0, 128, 192]]
 
+semantic_body_labels = [
+        [127, 127, 127], # Head,
+        [0, 255, 255], # Left hand,
+        [255, 255, 0], # Left Arm - Upper
+        [127, 127, 0], # Right hand
+        [255, 127, 127],
+        [0, 255, 0], # Left leg
+        [0, 0, 0], # Background
+        [255, 127, 0], # Right Arm - Upper
+        [0, 0, 255], # Right Leg
+        [127, 255, 127],
+        [0, 127, 255],
+        [127, 0, 255], # Right Arm - Lower,
+        [255, 255, 127], 
+        [255, 0, 0], # Torso
+        [255, 0, 255] # Left Arm Lower
+    ]
+
+def samTemplateSemanticBodyLabels():
+    template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = ["data/viton/data/image_body_parse"]
+    template['RENAME_OUTPUT_FILES'] = True
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [0, 0, 0]
+   
+    # Overall body definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 2
+    sam_setup['OUTPUT_COLOUR'] = [255, 0, 0]
+    template['BODY'] = sam_setup
+
+    # Torso definition
+    #sam_setup = getDefaultSAMInputDictionary()
+    #sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    #sam_setup["BBOX"] = [["2-Torso-Front"], [1.05, 1.05], None]
+    #sam_setup["MULTI_OUT"] = True
+    #sam_setup['OUTPUT_COLOUR'] = [255, 0, 0]
+    #sam_setup["ADD_BUFFER"] = 2
+    #sam_setup["FILL_HOLES"] = True
+    #template['TORSO'] = sam_setup
+
+    # Left leg definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["LLUF",0.25],["LLUF",0.5]]
+    sam_setup["BBOX"] = [["10-Leg-Left-Upper-Front"], [1.05, 1.05], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 1
+    sam_setup['OUTPUT_COLOUR'] =[0, 255, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_LEG'] = sam_setup
+
+    # Right leg definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["RLUF",0.25],["RLUF",0.5]]
+    sam_setup["BBOX"] = [["9-Leg-Right-Upper-Front"], [1.05, 1.05], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 1
+    sam_setup['OUTPUT_COLOUR'] =[0, 0, 255]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_LEG'] = sam_setup
+
+    # Head definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup['SI_POINTS'] = [["HEAD", 0.1]]
+    sam_setup["SE_POINTS"] = [["ARLO", 0.5],["ALLO",0.5],["ARLI",0.5],["ARLO", 0.5]]
+    sam_setup["BBOX"] = [["23-Head-Right","24-Head-Left"], [1.05, 1.7], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup['OUTPUT_COLOUR'] = [127, 127, 127]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    sam_setup["STORE_MASK"] = True
+    template['HEAD'] = sam_setup
+
+    # Left Hand definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["HLLI", 0.5],["HLLO",0.5]]
+    sam_setup["BBOX"] = [["4-Hand-Left"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [0, 0, 255]
+    sam_setup["ADD_BUFFER"] = 4
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_HAND'] = sam_setup
+
+    # Right Hand definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["HRLI", 0.5],["HRLO",0.5]]
+    sam_setup["BBOX"] = [["3-Hand-Right"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [127, 127, 0]
+    sam_setup["ADD_BUFFER"] = 4
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_HAND'] = sam_setup
+                
+    # Left upper arm definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["ALUO", 0.75], ["ALUI", 0.75]]
+    #sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARLO",0.5],["ARLI",0.5],["LLUF",0.1],["HLLI",0.5],["HLLO",0.5],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["15-Arm-Left-Upper-Inner", "17-Arm-Left-Upper-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [255, 255, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_ARM_UPPER'] = sam_setup         
+
+    # Left lower arm definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["ALLO", 0.75],["ALLI", 0.75]]
+    #sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARUO",0.5],["ARUI",0.5],["LRLUF",0.1],["HLLI",0.5],["HLLO",0.5],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["19-Arm-Left-Lower-Inner", "21-Arm-Left-Lower-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [255, 255, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_ARM_LOWER'] = sam_setup        
+
+    # Right upper arm definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["ARUO", 0.75],["ARUI", 0.75]]
+    #sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARLO",0.5],["ARLI",0.5],["LLUF",0.1],["HLLI",0.5],["HLLO",0.5],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["16-Arm-Right-Upper-Inner","18-Arm-Right-Upper-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [255, 127, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_ARM_UPPER'] = sam_setup         
+
+    # Right lower definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["ARLO", 0.75],["ARLI", 0.75]]
+    #sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARUO",0.5],["ARUI",0.5],["LRLUF",0.1],["HLLI",0.5],["HLLO",0.5],["HEAD",0.5]]
+    sam_setup["BBOX"] = [["20-Arm-Right-Lower-Inner", "22-Arm-Right-Lower-Outer"], [1.05, 1.05], None]
+    sam_setup['OUTPUT_COLOUR'] = [127, 0, 255]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_ARM_LOWER'] = sam_setup       
+
+    #Mask building order
+    template['PROCESSING_ORDER'] = ["BODY", 
+                                    "LEFT_LEG",
+                                    "RIGHT_LEG",
+                                    "LEFT_ARM_UPPER",
+                                    "RIGHT_ARM_UPPER",
+                                    "LEFT_ARM_LOWER",
+                                    "RIGHT_ARM_LOWER",
+                                    "LEFT_HAND",
+                                    "RIGHT_HAND",
+                                    "HEAD"]
+    
+    #template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0]}}
+
+    return template        
+
 def samBodyTemplateWithHands():
     template = {}
 

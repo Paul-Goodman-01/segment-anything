@@ -754,10 +754,10 @@ def showImageAndMask(base_image,
                      title = None, 
                      win_title = None,
                      blackout = False):
-        #plt.figure(figsize=(10,10))
+        plt.figure(figsize=(10,10))
         plt.subplot(1, 2, 1)
         plt.imshow(base_image)
-        plt.title('Original Image')       
+        plt.title('Original Image', fontsize=18)       
         
         plt.subplot(1, 2, 2)
         if not blackout:
@@ -765,14 +765,14 @@ def showImageAndMask(base_image,
         else:
             black_image = np.zeros((base_image.shape[0], base_image.shape[1], 3), dtype=np.uint8)
             plt.imshow(black_image)
-        plt.title('Image + Mask')
+        plt.title('Image + Mask', fontsize=18)
 
         if pu.isValidNpArray(mask):
             showMask(mask, plt.gca(), colour=[255,255,0], opacity=0.6)
 
-        if not title==None:
-            plt.title(title, fontsize=18)
-
+        #if not title==None:
+        #    plt.title(title, fontsize=18)
+        #
         plt.axis('on')
         
         if not win_title==None:
@@ -838,13 +838,19 @@ do_input_saves  = False
 use_random_file = True
 use_file_dialog = False
 
+verbose                   = False
+show_intermediate_results = True
+show_final_result         = True
+show_final_composite      = True
+
 try:
     # Set up the SAM template being used...
     #sam_template = spt.samBodyTemplateWithHands()
     #sam_template = spt.samTemplateImageParse()
     #sam_template = spt.samTemplateGarment()
     #sam_template = spt.samTemplateGarmentMask()
-    sam_template = spt.samTemplateGarmentAgnostic32()
+    #sam_template = spt.samTemplateGarmentAgnostic32()
+    sam_template = spt.samTemplateSemanticBodyLabels()
    
     if not pu.isValidDict(sam_template):
         raise ScriptException("ERROR! : Could not retrieve a valid template dictionary!")        
@@ -946,10 +952,6 @@ try:
         # OK, Now we should be able to start doing something with SAM
         if is_sam_OK == True:
             print("SAM OK!")
-            verbose                   = False
-            show_intermediate_results = False
-            show_final_result         = False
-            show_final_composite      = True
             stored_masks              = {}
 
             print("Creating output image template.")                
