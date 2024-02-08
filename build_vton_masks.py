@@ -79,7 +79,7 @@ def createColouredImage(image, colour=(0, 0, 0)):
     coloured_image = ski.img_as_ubyte(coloured_image)
     return coloured_image
 
-def createLowestThresholdMask(mask, T_value):
+def createLowestThresholdMask(mask, T_value, buffer=0):
     if T_value>=0.0 and T_value <= 1.0: 
         head_oobb = getMaskOOBB(mask, flip=True)
         ys = [point[1] for point in head_oobb]
@@ -90,6 +90,8 @@ def createLowestThresholdMask(mask, T_value):
         threshold = round(min_y + (T_value * range_y))
         new_mask = np.zeros_like(mask)
         new_mask[threshold:, :] = mask[threshold:, :]
+        if buffer > 0:
+            new_mask = addBufferToMask(new_mask, buffer)
         return new_mask
 
 def createMaskedImage(original_image, mask_image, back_colour='black', rep_colour=None):
@@ -839,8 +841,8 @@ use_random_file = True
 use_file_dialog = False
 
 verbose                   = False
-show_intermediate_results = True
-show_final_result         = True
+show_intermediate_results = False
+show_final_result         = False
 show_final_composite      = True
 
 try:
@@ -850,7 +852,8 @@ try:
     #sam_template = spt.samTemplateGarment()
     #sam_template = spt.samTemplateGarmentMask()
     #sam_template = spt.samTemplateGarmentAgnostic32()
-    sam_template = spt.samTemplateSemanticBodyLabels()
+    #sam_template = spt.samTemplateSemanticBodyLabels()
+    sam_template = spt.samHairTemplate()
    
     if not pu.isValidDict(sam_template):
         raise ScriptException("ERROR! : Could not retrieve a valid template dictionary!")        
@@ -1004,15 +1007,32 @@ try:
                     if "ADD_NECK" in sam_template['POST_PROCESSING']:
                         print("Applying 'ADD_NECK' post_process operation.")
                         if "HEAD" in stored_masks.keys():
-                            neck_mask = createLowestThresholdMask(stored_masks['HEAD'], 0.6)
-                            
                             neck_colour = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'ADD_NECK', 'OUT_COLOUR'])
+                            threshold = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'ADD_NECK', 'THRESHOLD'])
+                            neck_mask = createLowestThresholdMask(stored_masks['HEAD'], T_value = threshold)
+                                                        
                             #print(f"Neck colour : {neck_colour}.")
                             output_image = createImageByAddingMask(output_image, 
                                                                    neck_mask, 
                                                                    mask_col=neck_colour)
                         else:
                             print(f"WARNING ! : Couldn't find stored mask 'HEAD' in '{stored_masks}'!")
+                
+                    if "REMOVE_BODY" in sam_template['POST_PROCESSING']:
+                        print("Applying 'REMOVE_BODY' post_process operation.")
+                        if "BODY" in stored_masks.keys():
+                            body_colour = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'OUT_COLOUR'])
+                            threshold = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'THRESHOLD'])
+                            buffer = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'BUFFER'])
+                            body_mask = createLowestThresholdMask(stored_masks['BODY'], T_value = threshold, buffer=buffer)
+                                                            
+                            #print(f"Neck colour : {neck_colour}.")
+                            output_image = createImageByAddingMask(output_image, 
+                                                                   body_mask, 
+                                                                   mask_col=body_colour)
+                        else:
+                            print(f"WARNING ! : Couldn't find stored mask 'BODY' in '{stored_masks}'!")
+                    
                 else: 
                     print("No post-processing defined.")
                 

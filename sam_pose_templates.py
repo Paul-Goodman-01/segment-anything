@@ -60,6 +60,66 @@ semantic_body_labels = [
         [255, 0, 255] # Left Arm Lower
     ]
 
+def samHairTemplate():
+    template = {}
+
+    # What directories are required
+    template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
+    template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
+
+    template['ADDITIONAL_INPUT_PATHS'] = ["detectron2/results_cvton", "detectron2/results_cvton_dump"]
+    template['ADDITIONAL_INPUT_FORMATS'] = [["png"],["json"]]
+    template['INPUT_KEYS'] = ['0_BASE','1_ADD_IMAGE','2_JSON']
+    template['INPUT_COLOURS'] = 'CVTON'
+   
+    template['OUTPUT_SIZE']   = [384, 512]
+    template['OUTPUT_PATHS'] = []
+    template['RENAME_OUTPUT_FILES'] = False
+
+    # Setup Background
+    template['BACKGROUND_TYPE'] = "SOLID_FILL"
+    template['BACKGROUND_COLOUR'] = [0, 0, 0]
+   
+    # Overall body definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 2
+    sam_setup['OUTPUT_COLOUR'] = [0, 128, 0]
+    sam_setup["STORE_MASK"] = True
+    template['BODY'] = sam_setup
+
+    # Torso definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["TORS", 0.3]]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup['OUTPUT_COLOUR'] = [128, 0, 128]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['TOP_GARMENT'] = sam_setup
+
+    # Head definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup['SI_POINTS'] = [["HEAD", 0.1]]
+    sam_setup["SE_POINTS"] = [["ARLO", 0.5],["ALLO",0.5],["ARLI",0.5],["ARLO", 0.5]]
+    sam_setup["BBOX"] = [["23-Head-Right","24-Head-Left"], [1.05, 1.7], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup['OUTPUT_COLOUR'] = [128, 0, 192]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['HEAD'] = sam_setup
+                
+    # Mask building order
+    template['PROCESSING_ORDER'] = ["BODY", 
+                                    "HEAD",
+                                    "TOP_GARMENT"]
+
+    template["POST_PROCESSING"] = {"REMOVE_BODY" : {"OUT_COLOUR" : [0, 0, 0],
+                                                    "THRESHOLD"  : 0.40,
+                                                    "BUFFER"     : 10}}
+
+    return template        
+
 def samTemplateSemanticBodyLabels():
     template = {}
 
@@ -76,6 +136,8 @@ def samTemplateSemanticBodyLabels():
     template['OUTPUT_PATHS'] = ["data/viton/data/image_body_parse"]
     template['RENAME_OUTPUT_FILES'] = True
 
+    # Preprocessing steps to get hair.  
+
     # Setup Background
     template['BACKGROUND_TYPE'] = "SOLID_FILL"
     template['BACKGROUND_COLOUR'] = [0, 0, 0]
@@ -88,38 +150,6 @@ def samTemplateSemanticBodyLabels():
     sam_setup['OUTPUT_COLOUR'] = [255, 0, 0]
     template['BODY'] = sam_setup
 
-    # Torso definition
-    #sam_setup = getDefaultSAMInputDictionary()
-    #sam_setup["SI_POINTS"] = [["TORS", 0.3]]
-    #sam_setup["BBOX"] = [["2-Torso-Front"], [1.05, 1.05], None]
-    #sam_setup["MULTI_OUT"] = True
-    #sam_setup['OUTPUT_COLOUR'] = [255, 0, 0]
-    #sam_setup["ADD_BUFFER"] = 2
-    #sam_setup["FILL_HOLES"] = True
-    #template['TORSO'] = sam_setup
-
-    # Left leg definition
-    sam_setup = getDefaultSAMInputDictionary()
-    sam_setup["SI_POINTS"] = [["LLUF",0.25],["LLUF",0.5]]
-    sam_setup["BBOX"] = [["10-Leg-Left-Upper-Front"], [1.05, 1.05], None]
-    sam_setup["MULTI_OUT"] = True
-    sam_setup["FORCE_MULTI"] = 1
-    sam_setup['OUTPUT_COLOUR'] =[0, 255, 0]
-    sam_setup["ADD_BUFFER"] = 2
-    sam_setup["FILL_HOLES"] = True
-    template['LEFT_LEG'] = sam_setup
-
-    # Right leg definition
-    sam_setup = getDefaultSAMInputDictionary()
-    sam_setup["SI_POINTS"] = [["RLUF",0.25],["RLUF",0.5]]
-    sam_setup["BBOX"] = [["9-Leg-Right-Upper-Front"], [1.05, 1.05], None]
-    sam_setup["MULTI_OUT"] = True
-    sam_setup["FORCE_MULTI"] = 1
-    sam_setup['OUTPUT_COLOUR'] =[0, 0, 255]
-    sam_setup["ADD_BUFFER"] = 2
-    sam_setup["FILL_HOLES"] = True
-    template['RIGHT_LEG'] = sam_setup
-
     # Head definition
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup['SI_POINTS'] = [["HEAD", 0.1]]
@@ -131,6 +161,28 @@ def samTemplateSemanticBodyLabels():
     sam_setup["FILL_HOLES"] = True
     sam_setup["STORE_MASK"] = True
     template['HEAD'] = sam_setup
+
+    # Left leg definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["LLUF",0.25],["LLUF",0.5]]
+    sam_setup["BBOX"] = [["10-Leg-Left-Upper-Front"], [1.2, 1.2], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 1
+    sam_setup['OUTPUT_COLOUR'] =[0, 255, 0]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['LEFT_LEG'] = sam_setup
+
+    # Right leg definition
+    sam_setup = getDefaultSAMInputDictionary()
+    sam_setup["SI_POINTS"] = [["LRUF",0.25],["LRUF",0.5]]
+    sam_setup["BBOX"] = [["9-Leg-Right-Upper-Front"], [1.2, 1.2], None]
+    sam_setup["MULTI_OUT"] = True
+    sam_setup["FORCE_MULTI"] = 1
+    sam_setup['OUTPUT_COLOUR'] = [0, 0, 255]
+    sam_setup["ADD_BUFFER"] = 2
+    sam_setup["FILL_HOLES"] = True
+    template['RIGHT_LEG'] = sam_setup
 
     # Left Hand definition
     sam_setup = getDefaultSAMInputDictionary()
@@ -180,7 +232,7 @@ def samTemplateSemanticBodyLabels():
     sam_setup["FILL_HOLES"] = True
     template['RIGHT_ARM_UPPER'] = sam_setup         
 
-    # Right lower definition
+    # Right lower arm definition
     sam_setup = getDefaultSAMInputDictionary()
     sam_setup["SI_POINTS"] = [["ARLO", 0.75],["ARLI", 0.75]]
     #sam_setup["SE_POINTS"] = [["ARLO", 0.90],["ARUO",0.5],["ARUI",0.5],["LRLUF",0.1],["HLLI",0.5],["HLLO",0.5],["HEAD",0.5]]
@@ -194,15 +246,16 @@ def samTemplateSemanticBodyLabels():
     template['PROCESSING_ORDER'] = ["BODY", 
                                     "LEFT_LEG",
                                     "RIGHT_LEG",
-                                    "LEFT_ARM_UPPER",
-                                    "RIGHT_ARM_UPPER",
                                     "LEFT_ARM_LOWER",
                                     "RIGHT_ARM_LOWER",
+                                    "LEFT_ARM_UPPER",
+                                    "RIGHT_ARM_UPPER",
                                     "LEFT_HAND",
                                     "RIGHT_HAND",
                                     "HEAD"]
     
-    #template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0]}}
+    #template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0],
+    #                                             "THRESHOLD" : 0.65}}
 
     return template        
 
@@ -316,7 +369,8 @@ def samBodyTemplateWithHands():
                                     "TOP_GARMENT",
                                     "BOTTOM_GARMENT"]
     
-    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 255, 0]}}
+    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 255, 0],
+                                                 "THRESHOLD" : 0.65}}
 
     return template        
 
@@ -405,7 +459,8 @@ def samTemplateImageParse():
                                     "TOP_GARMENT",
                                     "BOTTOM_GARMENT"]
     
-    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 0, 0]}}
+    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0],
+                                                 "THRESHOLD" : 0.65}}
 
     return template  
 
