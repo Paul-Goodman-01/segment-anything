@@ -80,7 +80,8 @@ def createColouredImage(image, colour=(0, 0, 0)):
     return coloured_image
 
 def createLowestThresholdMask(mask, T_value, buffer=0):
-    if T_value>=0.0 and T_value <= 1.0: 
+    new_mask = None
+    if not T_value==None and T_value>=0.0 and T_value <= 1.0: 
         head_oobb = getMaskOOBB(mask, flip=True)
         ys = [point[1] for point in head_oobb]
         min_y = min(ys)
@@ -90,7 +91,7 @@ def createLowestThresholdMask(mask, T_value, buffer=0):
         threshold = round(min_y + (T_value * range_y))
         new_mask = np.zeros_like(mask)
         new_mask[threshold:, :] = mask[threshold:, :]
-        if buffer > 0:
+        if not buffer==None and buffer > 0:
             new_mask = addBufferToMask(new_mask, buffer)
         return new_mask
 
@@ -414,30 +415,6 @@ def readAssociatedFiles(base_file, additional_files):
 
     return files, exts
 
-# Read the combination of base image, denspose image and json file
-def readFileTriple(base_filename, dens_filename, json_filename):
-    OK = False
-    base_image = dens_image = image_metrics = None
-    try:
-        # Load the two images 
-        base_image = ski.io.imread(base_filename)
-        dens_image = ski.io.imread(dens_filename)
-        dens_image = doPreprocessImage(dens_image)
-
-        # Try to read in the json data 
-        with open(json_filename, 'r') as file:
-            temp_dict = json.load(file)
-            image_metrics   = temp_dict['IMAGE_DATA']
-            body_parts      = temp_dict['BODY_PARTS']
-            skeleton        = temp_dict['SKELETON'] 
-        
-        OK = True
-    except Exception as e:
-        print(f"ERROR!: Failed to read inputs associated with '{base_filename}'")
-        pu.dumpException(e)
-
-    return OK, base_image, dens_image, image_metrics, body_parts, skeleton
-
 def samCreateCompatibleInputs(create_props, 
                               inputs,
                               verbose = False):
@@ -535,8 +512,8 @@ def samCreateCompatibleInputs(create_props,
     return points, labels, bbox, mask, multi_out, force_multi
 
 def samDoInference(layer,
-                   sam_predictor,
-                   sam_setup,
+                   predictor,
+                   template,
                    inputs,
                    verbose=False, 
                    show_intermediate_results=False, 
@@ -545,13 +522,14 @@ def samDoInference(layer,
 
     print(f"{inputs.keys()}")
     try:
-        base_image                = pu.getSafeDictKey(inputs, ['0_BASE'])
-        image_metrics             = pu.getSafeDictKey(inputs, ['2_JSON','IMAGE_DATA'])
-        if not pu.isValidNpArray(base_image) or not pu.isValidDict(image_metrics):
-            raise ScriptException("WARNING! : SOmething went wrong retrieving base image or image metrics from input dictionary!")
-        
-        samSetImage(sam_predictor, base_image)
-        points, labels, bbox, mask, multi_out, force_multi = samCreateCompatibleInputs(sam_setup, 
+        inference_on = pu.getSafeDictKey(template,["IMAGE"])
+        image = pu.getSafeDictKey(inputs, [inference_on])
+        title = pu.getSafeDictKey(inputs, ['2_JSON','IMAGE_DATA', 'FILE'])
+        if not pu.isValidNpArray(image):
+            raise ScriptException("WARNING! : Something went wrong retrieving inference image from inputs dictionary!")
+
+        samSetImage(predictor, image)   
+        points, labels, bbox, mask, multi_out, force_multi = samCreateCompatibleInputs(template, 
                                                                                        inputs, 
                                                                                        verbose = verbose)
         
@@ -560,7 +538,7 @@ def samDoInference(layer,
         logits=[]
 
         if pu.isValidNpArray(points):    
-            masks, scores, logits = sam_predictor.predict(
+            masks, scores, logits = predictor.predict(
                 point_coords=points,
                 point_labels=labels,
                 mask_input=mask,
@@ -580,30 +558,30 @@ def samDoInference(layer,
                 result = masks[0]
 
             # Mask image post-processing goes here
-            if not sam_setup['ADD_BUFFER']==None and sam_setup['ADD_BUFFER']>0:
+            if not template['ADD_BUFFER']==None and template['ADD_BUFFER']>0:
                 result = addBufferToMask(result, 
-                                        sam_setup['ADD_BUFFER'])
+                                         template['ADD_BUFFER'])
 
-            if sam_setup['FILL_HOLES']==True:
+            if template['FILL_HOLES']==True:
                 result = binary_fill_holes(result, 
                                         structure=disk(10))
 
             if show_intermediate_results==True:
                 showImageAndMaskDetail(layer,
-                                       base_image, 
+                                       image, 
                                        masks, 
                                        scores, 
                                        points, 
                                        bbox, 
                                        labels, 
-                                       image_metrics['FILE'])                 
+                                       win_title = title)                 
 
             if show_final_result==True:
-                showImageAndMask(base_image,
-                                 base_image,
+                showImageAndMask(image,
+                                 image,
                                  result,
                                  title = f"Final result mask: {layer}",
-                                 win_title = image_metrics['FILE'])
+                                 win_title = title)
     except ScriptException as e:
         pu.dumpException(e)
 
@@ -687,30 +665,205 @@ def samProcessBoundingBox(create_data, body_parts, clamp_vals=None):
                 new_bbox.append(temp_bbox)
     return new_bbox
 
-# Set the expected directory paths ro base images, densepose images and json files
-def setDirectories(in_root_dir, out_root_dir):
-    base_dir = os.path.join(in_root_dir, "data")
-    dens_dir = os.path.join(in_root_dir, "results_cvton") 
-    json_dir = os.path.join(in_root_dir, "results_cvton_dump")
-    out_dir  = os.path.join(out_root_dir, "result_masks")
-
-    print(f"Base image directory     : '{base_dir}'")
-    print(f"Densepose mask directory : '{dens_dir}'")
-    print(f"Densepose json directory : '{json_dir}'")
-    print(f"Output masks directory   : '{out_dir}'")
-
-    ## Create output directory if it doesn't exist
-    if not os.path.exists(out_dir):
-        try: 
-            os.makedirs(out_dir)
-            print(f"Created output directory : '{out_dir}'")
-        except:
-            print(f"ERROR! : Failed to create output directory!")
+# Generates a background image based on the SAM template info and a base image
+def samDoImageBackgroundGeneration(base_image, template):   
+    image = None
+    if template['BACKGROUND_TYPE'] == 'SOLID_FILL':
+        image = createColouredImage(base_image, colour=template['BACKGROUND_COLOUR'])
+    elif sam_template['BACKGROUND_TYPE'] == '0_BASE':
+        image = base_image
     else:
-        if any(os.listdir(out_dir)):
-            print("WARNING! : Files in output path will be overwritten!")
- 
-    return base_dir, dens_dir, json_dir, out_dir 
+        raise ScriptException("ERROR! : Unknown background type for output image!")
+    return image            
+
+def samDoMaskTemplateProcessing(predictor,
+                                template,
+                                inputs,
+                                image,
+                                stored_masks,
+                                verbose=False,
+                                show_intermediate_results=False,
+                                show_final_result=False):
+    
+    if not predictor == None and pu.isValidDict(template) and pu.isValidDict(inputs) and pu.isValidNpArray(image):      
+        # Process each mask key in turn
+        process_order = template['PROCESSING_ORDER']
+        if not pu.isValidList(process_order):
+            raise ScriptException("ERROR! : Could not get post-processing order from template!")
+                
+        for layer in process_order:
+            if verbose==True:
+                print(f"Processing mask layer: {layer}")
+            layer_template = pu.getSafeDictKey(template, [layer])
+            
+            if not layer_template:
+                raise ScriptException(f"ERROR! : Process order defines layer '{layer}', but layer details were not found!")
+
+            mask_to_add = samDoInference(layer,
+                                         predictor,
+                                         layer_template,
+                                         inputs,
+                                         verbose=verbose,
+                                         show_intermediate_results=show_intermediate_results,
+                                         show_final_result=show_final_result)
+                                        
+            if pu.isValidNpArray(mask_to_add):
+                if layer_template['MODE'] == "ADDITIVE":
+                    if verbose==True:
+                        print("Adding part mask to output mask")
+                    image = createImageByAddingMask(image, 
+                                                    mask_to_add,
+                                                    mask_col = layer_template['OUTPUT_COLOUR'])
+            elif layer_template['MODE'] == "BASE_MASK":
+                if verbose==True:
+                    print("Adding part mask to output mask")
+                image = createMaskedImage(inputs['0_BASE'], 
+                                          mask_to_add,
+                                          back_colour = template['BACKGROUND_COLOUR'])
+            else: 
+                raise ScriptException(f"ERROR! : Unknown image compositon mode {layer_template['MODE']} in template!") 
+
+            if layer_template['STORE_MASK'] == True:
+                stored_masks[layer] = copy.copy(mask_to_add)
+                if verbose == True:
+                    print("Storing mask for further processing")
+            if verbose == True:                  
+                print("----------------------")
+    else:
+        raise ScriptException("ERROR! : Invalid inputs to SAM image mask processor!")
+
+    return image, stored_masks
+
+def samDoMaskTemplatePostProcessing(template,
+                                    inputs,
+                                    image,
+                                    stored_masks,
+                                    verbose = False):
+          
+    if pu.isValidDict(template) and pu.isValidDict(inputs) and pu.isValidNpArray(image) and pu.isValidDict(stored_masks):
+        process_order = pu.getSafeDictKey(template, ["POST_PROCESSING_ORDER"])
+        if not pu.isValidList(process_order):
+            raise ScriptException("ERROR! : Post-processing order is invalid or undefined, yet we have post-processing actions!") 
+        
+        for item in process_order:
+            action = pu.getSafeDictKey(template, ["POST_PROCESSING", item])
+            if pu.isValidDict(action):
+                if item == "ADD_NECK":
+                    if verbose == True:
+                        print("Applying 'ADD_NECK' post-process operation.")
+                    if "HEAD" in stored_masks.keys():
+                        neck_colour = pu.getSafeDictKey(action, ['OUT_COLOUR'])
+                        threshold = pu.getSafeDictKey(action, ['THRESHOLD'])
+                        neck_mask = createLowestThresholdMask(stored_masks['HEAD'], T_value = threshold)
+                        image = createImageByAddingMask(image, 
+                                                        neck_mask, 
+                                                        mask_col=neck_colour)
+                    else:
+                        raise ScriptException(f"ERROR! : Couldn't find stored mask 'HEAD' in '{stored_masks}'!")
+                elif item == "ADD_SAVED":
+                    if verbose == True: 
+                        print("Applying 'ADD_SAVED' post-processing operation.")
+                    mask_name = pu.getSafeDictKey(action, ['NAME'])
+                    mask_colour = pu.getSafeDictKey(action, ['OUT_COLOUR'])
+                    if not mask_name==None and not mask_colour==None:
+                        mask_to_add = pu.getSafeDictKey(stored_masks, [mask_name])                        
+                        if pu.isValidNpArray(mask_to_add):
+                            image = createImageByAddingMask(image, 
+                                                            mask_to_add, 
+                                                            mask_col=mask_colour)
+                        else:
+                            raise ScriptException(f"ERROR!: Couldn't retrieve mask '{mask_name}' from stored masks: '{stored_masks.keys()}'!")
+                    else:
+                        raise ScriptException(f"ERROR! : Couldn't retrieve information for mask!")
+
+            else:
+                raise ScriptException(f"ERROR! : Unknown post-processing action '{action}' defined in processing order!") 
+                
+    return image
+
+def samDoMaskTemplatePreProcessing(predictor,
+                                   template,
+                                   inputs, 
+                                   stored_masks,
+                                   verbose = False,
+                                   show_intermediate_results=False,
+                                   show_final_result=False):
+    
+    if not predictor == None and pu.isValidDict(template) and pu.isValidDict(inputs):
+        if not pu.getSafeDictKey(template, ['PRE_PROCESSOR']) == True:
+            raise ScriptException("ERROR! : Template passed to pre-processing, but 'PRE_PROCESSOR' flag was not set!")
+
+        if not pu.isValidDict(pu.getSafeDictKey(template, ["POST_PROCESSING"])):
+            raise ScriptException("ERROR! : No post-processing actions defined in this pre-processor! Don't know what to do with resulting image to get a valid mask!") 
+               
+        if not pu.isValidList(pu.getSafeDictKey(template, ["POST_PROCESSING_ORDER"])):
+            raise ScriptException("ERROR! : Post-processing order is invalid or undefined, yet we have post-processing actions!") 
+        
+        new_mask = None
+
+        # Get background image
+        image = samDoImageBackgroundGeneration(inputs['0_BASE'], sam_template)
+
+        # Do pre-proccsing processing run :)
+        image, stored_masks = samDoMaskTemplateProcessing(predictor,
+                                                          template,
+                                                          inputs,
+                                                          image,
+                                                          stored_masks,
+                                                          verbose = verbose,
+                                                          show_intermediate_results=show_intermediate_results,
+                                                          show_final_result=show_final_result)
+
+        process_order = pu.getSafeDictKey(template, ["POST_PROCESSING_ORDER"])
+        
+        for item in process_order:
+            action = pu.getSafeDictKey(template, ["POST_PROCESSING", item])
+            #print(f"Action: {action}")
+            if pu.isValidDict(action):
+                if item == "REMOVE_BODY":
+                    if verbose == True:
+                        print("Applying 'REMOVE_BODY' post-process operation.")
+                    if "BODY" in stored_masks.keys():
+                        body_colour = pu.getSafeDictKey(action, ['OUT_COLOUR'])
+                        threshold = pu.getSafeDictKey(action, ['THRESHOLD'])
+                        buffer = pu.getSafeDictKey(action,  ['BUFFER'])
+                        if not threshold==None and not body_colour==None:
+                            body_mask = createLowestThresholdMask(stored_masks['BODY'], T_value = threshold, buffer=buffer)
+                            if pu.isValidNpArray(body_mask):                                                            
+                                #print(f"Neck colour : {neck_colour}.")
+                                image = createImageByAddingMask(image, 
+                                                                body_mask, 
+                                                                mask_col=body_colour)
+                            else:
+                                raise ScriptException("ERROR! : Couldn't create threshold based mask!")
+                        else:
+                            raise ScriptException("ERROR! : Could not get mask parameters!")
+                    else:
+                        print(f"WARNING ! : Couldn't find stored mask 'BODY' in '{stored_masks}'!")
+
+                elif item == "GET_MASK":
+                    if verbose == True:
+                        print("Applying 'GET_MASK' post-process operation.")
+                    colour = pu.getSafeDictKey(action, ['COLOUR'])
+                    if not colour==None:
+                        new_mask, _ = getBinaryMaskWithTolerance(image, colour)
+                    else:
+                        raise ScriptException(f"ERROR! : Could not get mask colour value!")    
+
+                elif item == "SAVE_MASK":
+                    if verbose == True:
+                        print("Applying 'SAVE_MASK' post-process operation.")
+                    mask_name = pu.getSafeDictKey(action, ['NAME'])  
+                    if pu.isValidNpArray(new_mask) and not mask_name==None:
+                        stored_masks[mask_name] = new_mask
+                    else:
+                        raise ScriptException(f"ERROR! : mask name not found, or invalid mask - cannot add pre-processing results to saved masks!")  
+                else:
+                    raise ScriptException(f"ERROR! : Unknown post-processing action '{action}' defined in post-processing order!") 
+
+        print(f"Stored masks after pre-processing step: {stored_masks.keys()}")
+
+    return stored_masks
 
 # Sets a given image into a SAM prediction model
 def samSetImage(pred, image):
@@ -759,7 +912,10 @@ def showImageAndMask(base_image,
         plt.figure(figsize=(10,10))
         plt.subplot(1, 2, 1)
         plt.imshow(base_image)
-        plt.title('Original Image', fontsize=18)       
+        if not title==None:
+            plt.title(title, fontsize=18)
+        else: 
+            plt.title("Original Image", fontsize=18)       
         
         plt.subplot(1, 2, 2)
         if not blackout:
@@ -767,14 +923,12 @@ def showImageAndMask(base_image,
         else:
             black_image = np.zeros((base_image.shape[0], base_image.shape[1], 3), dtype=np.uint8)
             plt.imshow(black_image)
-        plt.title('Image + Mask', fontsize=18)
+        
+        plt.title('Output Mask', fontsize=18)
 
         if pu.isValidNpArray(mask):
             showMask(mask, plt.gca(), colour=[255,255,0], opacity=0.6)
-
-        #if not title==None:
-        #    plt.title(title, fontsize=18)
-        #
+     
         plt.axis('on')
         
         if not win_title==None:
@@ -830,30 +984,30 @@ if setup_sam == True:
 input_mode       = "CVTON" # This sets the colours that define the masks - see 'DenseposeGroupingColours.py'
 
 ##OK Let's just hardcode these directories for now as those for the 'detectron2' code locations
-root_dir        = os.getcwd()
-parent_of_root  = os.path.dirname(root_dir)
-in_root_dir     = parent_of_root
-out_root_dir    = root_dir
-do_saves        = True
-do_input_saves  = False
+root_dir                  = os.getcwd()
+parent_of_root            = os.path.dirname(root_dir)
+in_root_dir               = parent_of_root
+out_root_dir              = root_dir
+do_saves                  = True
+do_input_saves            = False
 
-use_random_file = True
-use_file_dialog = False
+use_random_file           = True
+use_file_dialog           = False
 
-verbose                   = False
+verbose                   = True
 show_intermediate_results = False
 show_final_result         = False
 show_final_composite      = True
 
 try:
     # Set up the SAM template being used...
-    #sam_template = spt.samBodyTemplateWithHands()
+    sam_template = spt.samBodyTemplateWithHands()
     #sam_template = spt.samTemplateImageParse()
     #sam_template = spt.samTemplateGarment()
     #sam_template = spt.samTemplateGarmentMask()
     #sam_template = spt.samTemplateGarmentAgnostic32()
     #sam_template = spt.samTemplateSemanticBodyLabels()
-    sam_template = spt.samHairTemplate()
+    #sam_template = spt.samHairTemplate()
    
     if not pu.isValidDict(sam_template):
         raise ScriptException("ERROR! : Could not retrieve a valid template dictionary!")        
@@ -930,7 +1084,7 @@ try:
         add_out_dirs = sam_template['OUTPUT_PATHS']
         out_key_list = ['MASK']
         out_key_list.extend(list(inputs.keys())) 
-        print(f"out_key_list : {out_key_list}.")
+        #print(f"out_key_list : {out_key_list}.")
         #print(f"Output path length : {len(add_out_dirs)}, Input path length: {len(inputs)+1}.")
         
         if pu.isValidList(add_out_dirs):
@@ -954,93 +1108,69 @@ try:
         
         # OK, Now we should be able to start doing something with SAM
         if is_sam_OK == True:
-            print("SAM OK!")
-            stored_masks              = {}
+            print("--------------------------------------")                    
+            print("Segment Anything model set up OK!")
+            stored_masks = {}
+            output_image = None
 
-            print("Creating output image template.")                
-            if sam_template['BACKGROUND_TYPE'] == 'SOLID_FILL':
-                output_image = createColouredImage(inputs['0_BASE'], colour=sam_template['BACKGROUND_COLOUR'])
-            elif sam_template['BACKGROUND_TYPE'] == '0_BASE':
-                output_image = inputs['0_BASE']
-            else:
-                raise ScriptException("ERROR! : Unknown background type for output image!")
+            print("< CREATING INITIAL IMAGE LAYER >")
+            output_image = samDoImageBackgroundGeneration(inputs['0_BASE'], sam_template)
             
-            # Process each mask key in turn
-            process_order = sam_template['PROCESSING_ORDER']
-            if pu.isValidList(process_order):
-                for layer in process_order:
-                    print(f"Processing mask layer: {layer}")
-                    sam_setup = sam_template[layer]
-                    mask_to_add = samDoInference(layer,
-                                                 predictor,
-                                                 sam_setup,
-                                                 inputs, 
-                                                 verbose=verbose,
-                                                 show_intermediate_results=show_intermediate_results,
-                                                 show_final_result = show_final_result)
-                                        
-                    if pu.isValidNpArray(mask_to_add):
-                        if sam_setup['MODE'] == "ADDITIVE":
-                            print("Adding part mask to output mask")
-                            output_image = createImageByAddingMask(output_image, 
-                                                                   mask_to_add,
-                                                                   mask_col = sam_setup['OUTPUT_COLOUR'])
-                        elif sam_setup['MODE'] == "BASE_MASK":
-                            print("Adding part mask to output mask")
-                            output_image = createMaskedImage(inputs['0_BASE'], 
-                                                             mask_to_add,
-                                                             back_colour = sam_template['BACKGROUND_COLOUR'])
-                        else: 
-                            raise ScriptException(f"ERROR! : Unknown mode {sam_setup['MODE']}") 
+            if pu.isValidNpArray(output_image):
+                print("< CHECKING PRE-PROCESSING REQUIREMENTS >")
+                #Do we need to do any pre-processing to get additional masks?
+                pre_processing_list         = pu.getSafeDictKey(sam_template, ['USE_PRE_PROCESSOR_LIST'])
+                sam_pre_processing_template = None
 
-                        if sam_setup['STORE_MASK'] == True:
-                            stored_masks[layer] = copy.copy(mask_to_add)
-                            print("Storing part mask for further processing")
-                    print("----------------------")                    
+                if pu.isValidList(pre_processing_list):
+                    for function_name in pre_processing_list:
+                        if hasattr(spt, function_name):
+                            func = getattr(spt, function_name)
+                            sam_pre_processing_template = func()
+                        else:
+                            print("Function not found")
 
-                #print(f"{sam_template.keys()}")
-                print(f"Stored masks dictionary valid? : {pu.isValidDict(stored_masks)}")
-                print(f"Stored mask dictionary keys    : {list(stored_masks.keys())}")
-                if "POST_PROCESSING" in sam_template.keys() and pu.isValidDict(stored_masks):
-                    print("Doing post-processing...")
-                    #print(f"{sam_template['POST_PROCESSING']}")
-                    if "ADD_NECK" in sam_template['POST_PROCESSING']:
-                        print("Applying 'ADD_NECK' post_process operation.")
-                        if "HEAD" in stored_masks.keys():
-                            neck_colour = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'ADD_NECK', 'OUT_COLOUR'])
-                            threshold = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'ADD_NECK', 'THRESHOLD'])
-                            neck_mask = createLowestThresholdMask(stored_masks['HEAD'], T_value = threshold)
-                                                        
-                            #print(f"Neck colour : {neck_colour}.")
-                            output_image = createImageByAddingMask(output_image, 
-                                                                   neck_mask, 
-                                                                   mask_col=neck_colour)
-                        else:
-                            print(f"WARNING ! : Couldn't find stored mask 'HEAD' in '{stored_masks}'!")
-                
-                    if "REMOVE_BODY" in sam_template['POST_PROCESSING']:
-                        print("Applying 'REMOVE_BODY' post_process operation.")
-                        if "BODY" in stored_masks.keys():
-                            body_colour = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'OUT_COLOUR'])
-                            threshold = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'THRESHOLD'])
-                            buffer = pu.getSafeDictKey(sam_template, ['POST_PROCESSING', 'REMOVE_BODY', 'BUFFER'])
-                            body_mask = createLowestThresholdMask(stored_masks['BODY'], T_value = threshold, buffer=buffer)
-                                                            
-                            #print(f"Neck colour : {neck_colour}.")
-                            output_image = createImageByAddingMask(output_image, 
-                                                                   body_mask, 
-                                                                   mask_col=body_colour)
-                        else:
-                            print(f"WARNING ! : Couldn't find stored mask 'BODY' in '{stored_masks}'!")
-                    
-                else: 
-                    print("No post-processing defined.")
-                
-                print("----------------------")
+                    if pu.isValidDict(sam_pre_processing_template):
+                        print("< DOING PRE-PROCESSING STEPS >")
+                        stored_masks = samDoMaskTemplatePreProcessing(predictor,
+                                                                      sam_pre_processing_template,
+                                                                      inputs, 
+                                                                      stored_masks,
+                                                                      verbose = verbose,
+                                                                      show_intermediate_results=show_intermediate_results,
+                                                                      show_final_result = show_final_result)
+
+            if pu.isValidNpArray(output_image):
+                print("< DOING MAIN PROCESSING STEPS >")
+                output_image, stored_masks = samDoMaskTemplateProcessing(predictor,
+                                                                         sam_template,
+                                                                         inputs,
+                                                                         output_image,
+                                                                         stored_masks,
+                                                                         verbose = verbose,
+                                                                         show_intermediate_results=show_intermediate_results,
+                                                                         show_final_result = show_final_result)
+                print(f'Valid image after processing? : {pu.isValidNpArray(output_image)}')
+                print(f"Stored mask dictionary keys   : {list(stored_masks.keys())}")            
+              
+            if "POST_PROCESSING" in sam_template.keys() and pu.isValidDict(stored_masks):
+                print("< DOING POST-PROCESSING STEPS >")
+                output_image = samDoMaskTemplatePostProcessing(sam_template,
+                                                               inputs,
+                                                               output_image,
+                                                               stored_masks,
+                                                               verbose = verbose)             
+            else: 
+                print("No post-processing defined.")
+               
+            print("----------------------")
+            
             if show_final_composite==True:   
                 showImageAndMask(inputs['0_BASE'], output_image, win_title=base_file)
-                        
+
+               
             if do_saves==True:
+                print("< SAVING OUTPUTS >")     
                 file_title = pu.getFileTitle(base_file)
                 rename_files = pu.getSafeDictKey(sam_template, ['RENAME_OUTPUT_FILES'])
                 print(f"Rename files : {rename_files}")

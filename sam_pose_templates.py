@@ -62,6 +62,7 @@ semantic_body_labels = [
 
 def samHairTemplate():
     template = {}
+    template['PRE_PROCESSOR'] = True
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -114,14 +115,20 @@ def samHairTemplate():
                                     "HEAD",
                                     "TOP_GARMENT"]
 
+    # Post-processing actions 
     template["POST_PROCESSING"] = {"REMOVE_BODY" : {"OUT_COLOUR" : [0, 0, 0],
                                                     "THRESHOLD"  : 0.40,
-                                                    "BUFFER"     : 10}}
+                                                    "BUFFER"     : 10},
+                                   "GET_MASK"    : {'COLOUR'     : [0,128,0],
+                                                    "BUFFER"     : 0},
+                                   "SAVE_MASK"   : {"NAME"       : "HAIR"}}
+    template['POST_PROCESSING_ORDER'] = ["REMOVE_BODY", "GET_MASK", "SAVE_MASK"]
 
     return template        
 
 def samTemplateSemanticBodyLabels():
     template = {}
+    template['PRE_PROCESSOR'] = False
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -254,13 +261,12 @@ def samTemplateSemanticBodyLabels():
                                     "RIGHT_HAND",
                                     "HEAD"]
     
-    #template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0],
-    #                                             "THRESHOLD" : 0.65}}
-
     return template        
 
 def samBodyTemplateWithHands():
     template = {}
+    template['PRE_PROCESSOR'] = False
+    #template['USE_PRE_PROCESSOR_LIST'] = ['samHairTemplate']
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -369,13 +375,17 @@ def samBodyTemplateWithHands():
                                     "TOP_GARMENT",
                                     "BOTTOM_GARMENT"]
     
-    template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [0, 255, 0],
-                                                 "THRESHOLD" : 0.65}}
+    #template["POST_PROCESSING"] = {"ADD_NECK"  : {"OUT_COLOUR" : [0, 255, 0],
+    #                                              "THRESHOLD" : 0.65},
+    #                               "ADD_SAVED" : {"NAME" : "HAIR",
+    #                                              "OUT_COLOUR" : [255, 255, 255]}}
+    #template["POST_PROCESSING_ORDER"] = ["ADD_NECK", "ADD_SAVED"]
 
     return template        
 
 def samTemplateImageParse():
     template = {}
+    template['PRE_PROCESSOR'] = False
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -461,11 +471,13 @@ def samTemplateImageParse():
     
     template["POST_PROCESSING"] = {"ADD_NECK" : {"OUT_COLOUR" : [255, 0, 0],
                                                  "THRESHOLD" : 0.65}}
+    template["POST_PROCESSING_ORDER"] = ["ADD_NECK"]
 
     return template  
 
 def samTemplateGarment():
     template = {}
+    template['PRE_PROCESSOR'] = False
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -501,6 +513,7 @@ def samTemplateGarment():
 
 def samTemplateGarmentMask():
     template = {}
+    template['PRE_PROCESSOR'] = False
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
@@ -536,6 +549,7 @@ def samTemplateGarmentMask():
 
 def samTemplateGarmentAgnostic32():
     template = {}
+    template['PRE_PROCESSOR'] = False
 
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"

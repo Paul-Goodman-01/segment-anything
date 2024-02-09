@@ -82,7 +82,7 @@ def getSafeDictKey(dictionary, keys):
             else:
                 return getSafeDictKey(dictionary[key], keys[1:])
     except (KeyError, TypeError):
-        print("WARNING! : failed to get dictionary item from key list '{keys}'")
+        print(f"WARNING! : failed to get dictionary item from key list '{keys}'")
         pass
     return result
   
