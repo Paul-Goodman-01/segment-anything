@@ -721,8 +721,10 @@ def samDoMaskTemplateProcessing(predictor,
                     image = createMaskedImage(inputs['0_BASE'], 
                                               mask_to_add,
                                               back_colour = template['BACKGROUND_COLOUR'])
+                else:
+                    raise ScriptException(f"ERROR! : Unknown image compositon mode {layer_template['MODE']} in template!") 
             else: 
-                raise ScriptException(f"ERROR! : Unknown image compositon mode {layer_template['MODE']} in template!") 
+                print("WARNING! : Mask is not valid for this body part!!")
 
             if layer_template['STORE_MASK'] == True:
                 stored_masks[layer] = copy.copy(mask_to_add)
@@ -997,7 +999,7 @@ do_saves                  = True
 do_input_saves            = False
 
 use_random_file           = False
-use_file_dialog           = False
+use_file_dialog           = True
 
 verbose                   = True
 show_intermediate_results = False
@@ -1007,8 +1009,13 @@ show_final_composite      = False
 random_idx                = None
 
 try:
+    if use_file_dialog==True:
+        base_file = pu.getImageFileByDialog()
+        base_file_list = [base_file]
+        print(f"File selected: {base_file}")
+
     sam_template = None
-    
+       
     # Set up the SAM template being used - the dictionary commented out below shows the available template names (and associated functions)
      
     #sam_templates_dict = {{"BODY_PARSE", "samTemplateImageBodyParse"},
@@ -1037,13 +1044,9 @@ try:
    
         if not pu.isValidDict(sam_template):
             raise ScriptException(f"ERROR! : Could not retrieve a valid template dictionary for template '{template_name}'!")        
-
+       
         # Create the base file list, either by dialog, or by reading the directory
-        if use_file_dialog==True:
-            base_file = pu.getImageFileByDialog()
-            base_file_list = [base_file]
-            print(f"File selected: {base_file}")
-        else:
+        if not use_file_dialog==True:
             # Check that the base directory exists
             add_in_dir = sam_template['BASE_IMAGE_INPUT_PATH']
             base_dir = os.path.join(in_root_dir, add_in_dir)
@@ -1170,7 +1173,9 @@ try:
                                                                         show_intermediate_results=show_intermediate_results,
                                                                         show_final_result = show_final_result)
                         else:
-                            print("No pre-processing defined.")
+                            raise ScriptException(f"ERROR! : Could not get a valid pre-processing dictionary!")                    
+                    else:
+                        print("No pre-processing defined.")
 
                 if pu.isValidNpArray(output_image):
                     print("< DOING MAIN PROCESSING STEPS >")

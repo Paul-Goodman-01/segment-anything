@@ -265,8 +265,7 @@ def samTemplateImageBodyParseAlternate():
 def samTemplateImageParseWithHands():
     template = {}
     template['PRE_PROCESSOR'] = False
-    #template['USE_PRE_PROCESSOR_LIST'] = ['samHairTemplate']
-
+    
     # What directories are required
     template['BASE_IMAGE_INPUT_PATH'] = "detectron2/data"
     template['BASE_IMAGE_INPUT_FORMATS'] = ["jpg","png"]
