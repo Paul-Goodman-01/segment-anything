@@ -86,8 +86,8 @@ def createLowestThresholdMask(mask, T_value, buffer=0):
         ys = [point[1] for point in head_oobb]
         min_y = min(ys)
         range_y = max(ys) - min_y
-        print(f"Mask shape: {mask.shape}, length: {len(mask)}, Type: {type(mask)}")
-        print(f"Head_OOBB: {head_oobb}, MinY: {min_y}, Range: {range_y}")
+        #print(f"Mask shape: {mask.shape}, length: {len(mask)}, Type: {type(mask)}")
+        #print(f"Head_OOBB: {head_oobb}, MinY: {min_y}, Range: {range_y}")
         threshold = round(min_y + (T_value * range_y))
         new_mask = np.zeros_like(mask)
         new_mask[threshold:, :] = mask[threshold:, :]
@@ -105,7 +105,7 @@ def createMaskedImage(original_image, mask_image, back_colour='black', rep_colou
     return composite_image
 
 #NB: Processing of the inputs is done by reference, changing the originals 
-def doInputCheckingAndRescaling(inputs, template):
+def doInputCheckingAndRescaling(inputs, template, verbose=False):
     OK = True
     # Get required parameters from the images and json file
     grouping        = ccg.group_mode_dict[inputs['2_JSON']['BODY_PARTS']['GR_MODE']]
@@ -127,27 +127,29 @@ def doInputCheckingAndRescaling(inputs, template):
         o_x = output_shape[0]
         o_y = output_shape[1]
         if not i_x == o_x or not i_y == o_y:
-            print("Base image has been resized to match template output!")
+            if verbose==True:
+                print("Base image has been resized to match template output!")
             base_image = ski.transform.resize(base_image, (o_y, o_x), anti_aliasing=True)
             base_image = ski.img_as_ubyte(base_image)
             inputs['0_BASE'] = base_image
             base_shape      = base_image.shape
 
-    print(f"Base image shape     : {base_shape}")
-    print(f"Densepose mask shape : {dens_shape}")
-    print(f"JSON metrics shape   : {json_shape}")
-    print(f"Normalised metrics?  : {json_normalised}")
+    if verbose==True:
+        print(f"Base image shape     : {base_shape}")
+        print(f"Densepose mask shape : {dens_shape}")
+        print(f"JSON metrics shape   : {json_shape}")
+        print(f"Normalised metrics?  : {json_normalised}")
     # OK the dimensions of the two images, and the dimensions stored in the json should all match
     # if not, rescale the densepose file to match the base image, and rescale the body metrics in
     # the json file - fail if this is not possible.
     if json_normalised == False:
         if not base_shape == dens_shape:
-            print("Image shapes do not match, and mask metrics cannot be rescaled!")
-            OK = False
+            raise ScriptException("ERROR! : Image shapes do not match, and mask metrics cannot be rescaled!")
         else: 
             print("Images are of correct shape, and metrics do not need to be rescaled")
     else:
-        print("Resizing densepose mask image to match base image, and rescaling mask metrics")
+        if verbose==True:
+            print("Resizing densepose mask image to match base image, and rescaling mask metrics")
         new_image_metrics    = df.getRescaledImageMetrics(image_metrics, base_shape[1], base_shape[0]) 
         new_body_metrics     = df.getRescaledResults(body_metrics, base_shape[1], base_shape[0])
         new_skeleton         = skel.skeletonGetRescaledBones(skeleton, base_shape[1], base_shape[0])
@@ -163,12 +165,11 @@ def doInputCheckingAndRescaling(inputs, template):
         json_shape      = (inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][0], inputs['2_JSON']['IMAGE_DATA']['IM_SHAPE'][1], 3)
         json_normalised = inputs['2_JSON']['BODY_PARTS'][next(iter(grouping))]['NORMALISED']
    
+    if verbose==True:
         print(f"Rescaled Base image shape     : {base_shape}")
         print(f"Rescaled Densepose mask shape : {dens_shape}")
         print(f"Rescaled JSON metrics shape   : {json_shape}")
         print(f"Normalised metrics?           : {json_normalised}")
-    
-    return OK
 
 def doPreprocessImage(image, show_image=False):
     #Get all non white pixels in the image.
@@ -243,22 +244,6 @@ def getCompositeBoundingBox(body_parts, part_list, max_parts=100):
                 result = [min_Y, min_X, max_Y, max_X]
     return result
 
-def getEllipseMask(image, center, axes_lengths, angle_degrees):
-    mask = np.zeros_like(image)
-    mask = ski.color.rgb2gray(mask)
-    print(f"getEllipseMask shape: {mask.shape}")
-
-    # Get ellipse coordinates
-    rr, cc = ski.draw.ellipse(center[0], center[1], axes_lengths[0] // 2, axes_lengths[1] // 2, rotation=np.radians(angle_degrees))
-
-    # Set ellipse pixels to 1
-    mask[rr, cc] = 1
-
-    # Fill holes in the mask
-    filled_mask = binary_fill_holes(mask)
-
-    return filled_mask
-
 # Create a composite mask based on lookup of body parts by densepose grouping dictionary key
 def getGroupMask(image, 
                  group_name, 
@@ -291,22 +276,6 @@ def getGroupMask(image,
     
     return composite_mask, key_colour
 
-# Get lists of files in each input directory
-def getDirectoryFileLists(base, dens, json, image_extensions):
-    base_list = pu.getFilesInDirectory(base, image_extensions)
-    dens_list = pu.getFilesInDirectory(dens, image_extensions)
-    json_list = pu.getFilesInDirectory(json, ["json"])
-
-    # Quick check to see if these seen to match
-    print (f"Found {len(base_list)} image files in base directory")
-    print (f"Found {len(dens_list)} image files in densepose mask directory")
-    print (f"Found {len(json_list)} image files in densepose json directory")
-    all_equal = len(base_list) == len(dens_list) == len(json_list)
-    if not all_equal:
-        print("WARNING! : Unequal numbers of files in input directories!")
-
-    return base_list, dens_list, json_list
-
 # Get a list of the read in data types from an input list
 def getInputFileTypes(inputs):
     type_list = []
@@ -327,6 +296,7 @@ def getMaskOOBB(mask, flip=False):
         box_vertices = [[x, y] for x, y in box_vertices]
     return box_vertices
 
+# Get an array of the colours used in an image
 def getUsedColors(image):
     pixels = image.reshape((-1, image.shape[2]))
     unique_colors = np.unique(pixels, axis=0)
@@ -337,6 +307,7 @@ def initSegmentAnythingModel(model, checkpoint, device):
     OK = False
     # Set up segment-anything model
     print(f"Setting model '{model}' and loading weights from '{checkpoint}'")
+
     try:
         sam = sam_model_registry[model](checkpoint=checkpoint)
         sam.to(device=device)
@@ -357,30 +328,6 @@ def maskToPoints(mask):
     white_pixels = np.column_stack(np.where(mask > 0))
     return white_pixels
 
-def moveOOBB(obb_coords, displacement):
-    # Ensure that there are exactly four coordinates
-    if len(obb_coords) != 4:
-        raise ValueError("Four coordinates are required to define an oriented bounding box.")
-
-    # Convert coordinates to NumPy array
-    obb_coords = np.array(obb_coords)
-
-    # Calculate the centroid of the OBB
-    centroid = np.mean(obb_coords, axis=0)
-
-    # Determine the major axis (assumed to be the line connecting the first and second vertices)
-      
-    major_axis = obb_coords[1] - obb_coords[0]
-    major_axis /= np.linalg.norm(major_axis)
-
-    # Calculate the displacement vector along the major axis
-    displacement_vector = displacement * major_axis
-
-    # Apply the displacement to each vertex
-    moved_obb_coords = obb_coords + displacement_vector
-
-    return moved_obb_coords
-
 # Read in all required fiels
 def readAssociatedFiles(base_file, additional_files):
     files = {}
@@ -389,6 +336,7 @@ def readAssociatedFiles(base_file, additional_files):
         print(f"Reading base image file: '{base_file}'")
         files['0_BASE'] = ski.io.imread(base_file)
         ext = os.path.splitext(base_file)[1]
+        #print(f"Base file extension: {ext}")
         exts.append(ext)
         
         if pu.isValidList(additional_files):
@@ -403,7 +351,7 @@ def readAssociatedFiles(base_file, additional_files):
                         files[key] = json.load(file)
                         exts.append(ext)                    
                 else:
-                    print(f"Reading add image file : '{add_file}'")
+                    #print(f"Reading add image file : '{add_file}'")
                     key = str(i+1) + '_ADD_IMAGE'
                     files[key] = ski.io.imread(add_file)
                     exts.append(ext)       
@@ -415,6 +363,7 @@ def readAssociatedFiles(base_file, additional_files):
 
     return files, exts
 
+# Take elements of a template and convert to the interior, exterior and bounding boxes required by the SAM model
 def samCreateCompatibleInputs(create_props, 
                               inputs,
                               verbose = False):
@@ -432,61 +381,87 @@ def samCreateCompatibleInputs(create_props,
 
     #check dictionary keys
     if not create_props['AI_POINTS'] == None:
-        print("Adding AI points")
-        new_points, new_labels = samProcessAbsolutePoints(create_props['AI_POINTS'], True)
+        if verbose==True:
+            print("Adding AI points")
+        new_points, new_labels = samProcessAbsolutePoints(create_props['AI_POINTS'], 
+                                                          True, 
+                                                          verbose=verbose)
         if pu.isValidList(new_points) and pu.isValidList(new_labels):
             points.extend(new_points)
             labels.extend(new_labels)
 
     if not create_props['RI_POINTS'] == None and not image_metrics == None:
-        print("Adding RI points")
-        new_points, new_labels = samProcessRelativePoints(create_props['RI_POINTS'], image_metrics, True)
+        if verbose==True:
+            print("Adding RI points")
+        new_points, new_labels = samProcessRelativePoints(create_props['RI_POINTS'], 
+                                                          image_metrics, 
+                                                          True, 
+                                                          verbose=verbose)
         if pu.isValidList(new_points) and pu.isValidList(new_labels):
             points.extend(new_points)
             labels.extend(new_labels)
 
     if not create_props['AE_POINTS'] == None:
-        print("Adding AE points")
-        new_points, new_labels = samProcessAbsolutePoints(create_props['AE_POINTS'], False)
+        if verbose==True:
+            print("Adding AE points")
+        new_points, new_labels = samProcessAbsolutePoints(create_props['AE_POINTS'], 
+                                                          False, 
+                                                          verbose=verbose)
         if pu.isValidList(new_points) and pu.isValidList(new_labels):
             points.extend(new_points)
             labels.extend(new_labels)
 
     if not create_props['RE_POINTS'] == None and not image_metrics == None:
-        print("Adding RE points")
-        new_points, new_labels = samProcessRelativePoints(create_props['RE_POINTS'], image_metrics, False)
+        if verbose==True:
+            print("Adding RE points")
+        new_points, new_labels = samProcessRelativePoints(create_props['RE_POINTS'], 
+                                                          image_metrics, 
+                                                          False, 
+                                                          verbose=verbose)
         if pu.isValidList(new_points) and pu.isValidList(new_labels):
             points.extend(new_points)
             labels.extend(new_labels)
 
     if not create_props['SI_POINTS'] == None and not skeleton == None:
-        print("Adding SI points")
-        new_points, new_labels = samProcessSkeletonPoints(create_props['SI_POINTS'], skeleton, True)
+        if verbose==True:
+            print("Adding SI points")
+        new_points, new_labels = samProcessSkeletonPoints(create_props['SI_POINTS'], 
+                                                          skeleton, 
+                                                          True, 
+                                                          verbose=verbose)
         if pu.isValidList(new_points) and pu.isValidList(new_labels):
             points.extend(new_points)
             labels.extend(new_labels)
 
     if not create_props['SE_POINTS'] == None and not skeleton == None:
-        print("Adding SE points")
-        new_points, new_labels = samProcessSkeletonPoints(create_props['SE_POINTS'], skeleton, False)
+        if verbose==True:
+            print("Adding SE points")
+        new_points, new_labels = samProcessSkeletonPoints(create_props['SE_POINTS'], 
+                                                          skeleton, 
+                                                          False, 
+                                                          verbose=verbose)
         points.extend(new_points)
         labels.extend(new_labels)
 
     if not create_props['BBOX'] == None and not image_metrics == None and not body_parts == None:
-        print("Adding Bounding Box")
+        if verbose==True:
+            print("Adding Bounding Box")
         bbox = samProcessBoundingBox(create_props['BBOX'], body_parts, [0, 0, image_metrics['IM_SHAPE'][1], image_metrics['IM_SHAPE'][0]])
         
     if not create_props['MASK'] == None:
-        print("Adding Mask")
+        if verbose==True:
+            print("Adding Mask")
         mask = create_props['MASK']
     
     multi_out = create_props['MULTI_OUT'] 
-    print(f"Set multimask output to {multi_out}")
+    if verbose==True:
+        print(f"Set multimask output to {multi_out}")
 
     if not create_props['FORCE_MULTI'] == None:
         if create_props['FORCE_MULTI']>=0 and create_props['FORCE_MULTI']<=2:
             force_multi = create_props['FORCE_MULTI']
-            print(f"Set forced multimask return to {force_multi}")
+            if verbose==True:
+                print(f"Set forced multimask return to {force_multi}")
         
     if len(points)>0 and len(labels)>0 and len(points)==len(labels):
         points = np.array(points)
@@ -511,6 +486,7 @@ def samCreateCompatibleInputs(create_props,
 
     return points, labels, bbox, mask, multi_out, force_multi
 
+# Run a SAM inference, create a mask from that inference, and display the results if desired
 def samDoInference(layer,
                    predictor,
                    template,
@@ -520,7 +496,7 @@ def samDoInference(layer,
                    show_final_result=False):
     result = None
 
-    print(f"{inputs.keys()}")
+    #print(f"{inputs.keys()}")
     try:
         inference_on = pu.getSafeDictKey(template,["IMAGE"])
         image = pu.getSafeDictKey(inputs, [inference_on])
@@ -587,15 +563,17 @@ def samDoInference(layer,
 
     return result
 
-def samProcessAbsolutePoints(create_data, include):
+def samProcessAbsolutePoints(create_data, include, verbose=False):
     new_points = None
     new_labels = None
     if not create_data == None and len(create_data)>0:
         new_points = copy.copy(create_data)
         new_labels = [include] * len(new_points)
+        if verbose==True:
+            print("Processing absolute points.")
     return new_points, new_labels
 
-def samProcessRelativePoints(create_data, image_metrics, include):
+def samProcessRelativePoints(create_data, image_metrics, include, verbose=False):
     new_points = None
     new_labels = None
     if not create_data == None and len(create_data)>0:
@@ -604,18 +582,26 @@ def samProcessRelativePoints(create_data, image_metrics, include):
         if not w==None and w > 0 and not h==None and h > 0: 
             new_points = [[round(x * w), round(y * h)] for x, y in create_data]
             new_labels = [include] * len(new_points)
+            if verbose==True:
+                print("Processing relative points.")
     return new_points, new_labels
 
-def samProcessSkeletonPoints(create_data, skeleton, include):
+def samProcessSkeletonPoints(create_data, skeleton, include, verbose=False):
     new_points = None
     new_labels = None
     if not create_data == None and len(create_data)>0:
+        if verbose==True:
+            print("Processing skeleton points.")
         temp_points = []
         for bone_group, t_value in create_data:
-            print(f"Bone group: {bone_group}, : t_value: {t_value}")
-            #print(f"{skeleton}")
+            if verbose==True:
+                print(f"Bone group: {bone_group}, : t_value: {t_value}")
+
             point = skel.skeletonGetBoneControlPoint(skeleton, bone_group, t_value)
-            print(f"Bone: {bone_group}, T_Val: {t_value}, Point: {point}")
+            
+            if verbose==True:
+                print(f"Bone: {bone_group}, T_Val: {t_value}, Point: {point}")
+           
             if len(point)>0:
                 if point[2]==True:
                     temp_points.append([point[1], point[0]])
@@ -626,11 +612,13 @@ def samProcessSkeletonPoints(create_data, skeleton, include):
 
     return new_points, new_labels
 
-def samProcessBoundingBox(create_data, body_parts, clamp_vals=None):
+def samProcessBoundingBox(create_data, body_parts, clamp_vals=None, verbose=False):
     new_bbox   = None
     if not create_data == None and len(create_data)>0:
         temp_bbox = getCompositeBoundingBox(body_parts, create_data[0])
         if not temp_bbox==None:
+            if verbose==True:
+                print("Processing bounmding boxes.")
             new_bbox = []
             ox = round((temp_bbox[1]+temp_bbox[3])*0.5)
             oy = round((temp_bbox[0]+temp_bbox[2])*0.5)
@@ -668,14 +656,27 @@ def samProcessBoundingBox(create_data, body_parts, clamp_vals=None):
 # Generates a background image based on the SAM template info and a base image
 def samDoImageBackgroundGeneration(base_image, template):   
     image = None
-    if template['BACKGROUND_TYPE'] == 'SOLID_FILL':
-        image = createColouredImage(base_image, colour=template['BACKGROUND_COLOUR'])
-    elif sam_template['BACKGROUND_TYPE'] == '0_BASE':
-        image = base_image
+    mode = pu.getSafeDictKey(template, ['BACKGROUND_TYPE'])
+    if not mode==None:
+        if mode == 'SOLID_FILL':
+            colour = pu.getSafeDictKey(template, ['BACKGROUND_COLOUR'])
+            if not colour==None:
+                image = createColouredImage(base_image, colour=template['BACKGROUND_COLOUR'])
+            else:
+                raise ScriptException(f"ERROR! : Background colour is not defined - can't create output image!")        
+        elif sam_template['BACKGROUND_TYPE'] == '0_BASE':
+            if pu.isValidNpArray(base_image):
+                image = base_image
+        else:
+            raise ScriptException(f"ERROR! : Background type '{mode}' is unknown - can't create output image!")    
     else:
-        raise ScriptException("ERROR! : Unknown background type for output image!")
+        raise ScriptException("ERROR! : Background type not defined - can't create output image!")
     return image            
 
+# The main function for mask processing. Adds a mask to an image
+# but creating required control inputs to the SAM model, 
+# then calling the SAM model to do inference. 
+# Optionally saves that mask for further post-processing
 def samDoMaskTemplateProcessing(predictor,
                                 template,
                                 inputs,
@@ -710,16 +711,16 @@ def samDoMaskTemplateProcessing(predictor,
             if pu.isValidNpArray(mask_to_add):
                 if layer_template['MODE'] == "ADDITIVE":
                     if verbose==True:
-                        print("Adding part mask to output mask")
+                        print("Adding body part mask to background image.")
                     image = createImageByAddingMask(image, 
                                                     mask_to_add,
                                                     mask_col = layer_template['OUTPUT_COLOUR'])
-            elif layer_template['MODE'] == "BASE_MASK":
-                if verbose==True:
-                    print("Adding part mask to output mask")
-                image = createMaskedImage(inputs['0_BASE'], 
-                                          mask_to_add,
-                                          back_colour = template['BACKGROUND_COLOUR'])
+                elif layer_template['MODE'] == "BASE_MASK":
+                    if verbose==True:
+                        print("Creating new image from masked original image.")
+                    image = createMaskedImage(inputs['0_BASE'], 
+                                              mask_to_add,
+                                              back_colour = template['BACKGROUND_COLOUR'])
             else: 
                 raise ScriptException(f"ERROR! : Unknown image compositon mode {layer_template['MODE']} in template!") 
 
@@ -734,6 +735,8 @@ def samDoMaskTemplateProcessing(predictor,
 
     return image, stored_masks
 
+# Function to perform post-processing operations on an image,
+# typically using masks saved by the main, or pre-, processor
 def samDoMaskTemplatePostProcessing(template,
                                     inputs,
                                     image,
@@ -781,6 +784,8 @@ def samDoMaskTemplatePostProcessing(template,
                 
     return image
 
+# Function to pre-process an image, saving just a mask as output
+# Runs a cut-down version of the main script loop.
 def samDoMaskTemplatePreProcessing(predictor,
                                    template,
                                    inputs, 
@@ -981,7 +986,7 @@ if setup_sam == True:
         raise ScriptException("ERROR! : Could not initialise Segment Anything Model!")
 
 ## Initialise input and grouping dictionaries
-input_mode       = "CVTON" # This sets the colours that define the masks - see 'DenseposeGroupingColours.py'
+input_mode       = "CVTON" # This sets the colours that define the masks in the input Densepose image - see 'DenseposeGroupingColours.py'
 
 ##OK Let's just hardcode these directories for now as those for the 'detectron2' code locations
 root_dir                  = os.getcwd()
@@ -991,221 +996,250 @@ out_root_dir              = root_dir
 do_saves                  = True
 do_input_saves            = False
 
-use_random_file           = True
+use_random_file           = False
 use_file_dialog           = False
 
 verbose                   = True
 show_intermediate_results = False
 show_final_result         = False
-show_final_composite      = True
+show_final_composite      = False
+
+random_idx                = None
 
 try:
-    # Set up the SAM template being used...
-    sam_template = spt.samBodyTemplateWithHands()
-    #sam_template = spt.samTemplateImageParse()
-    #sam_template = spt.samTemplateGarment()
-    #sam_template = spt.samTemplateGarmentMask()
-    #sam_template = spt.samTemplateGarmentAgnostic32()
-    #sam_template = spt.samTemplateSemanticBodyLabels()
-    #sam_template = spt.samHairTemplate()
-   
-    if not pu.isValidDict(sam_template):
-        raise ScriptException("ERROR! : Could not retrieve a valid template dictionary!")        
-
-    # Create the base file list, either by dialog, or by reading the directory
-    if use_file_dialog==True:
-        base_file = pu.getImageFileByDialog()
-        base_file_list = [base_file]
-        print(f"File selected: {base_file}")
-    else:
-        # Check that the base directory exists
-        add_in_dir = sam_template['BASE_IMAGE_INPUT_PATH']
-        base_dir = os.path.join(in_root_dir, add_in_dir)
-        base_file_format = sam_template['BASE_IMAGE_INPUT_FORMATS']
-        if not pu.checkDirectory(base_dir):
-            raise ScriptException(f"ERROR! : Input path '{base_dir}' does not exist!")
-        else: # Get the base file list
-            print(f"Base input directory set to: '{base_dir}'.")
-            base_file_list = pu.getFilesInDirectory(base_dir, base_file_format)
-            if use_random_file==True: # Pick a single file from the list
-               file_idx = random.randint(0, len(base_file_list)-1)
-               base_file = base_file_list[file_idx]
-               base_file_list = [base_file] 
-
-    # Check to see if any further input directories exist and, if so, generate file lists for these 
-    # that match the base file list
-    extra_dirs   = sam_template['ADDITIONAL_INPUT_PATHS']
-    file_formats = sam_template['ADDITIONAL_INPUT_FORMATS'] 
-    extra_dir_files = {}
-    output_paths    = {}
-    if pu.isValidList(extra_dirs) and pu.isValidList(file_formats) and len(extra_dirs) == len(file_formats):
-        for dir, file_format in zip(extra_dirs, file_formats):
-            #print(f"In root '{in_root_dir}'...")
-            full_ext_dir = os.path.join(in_root_dir, dir)
-            #print(f"Checking '{full_ext_dir}'...")
-            if not pu.checkDirectory(full_ext_dir):
-                raise ScriptException(f"ERROR! : Additional required path '{dir}' does not exist!")
-            else:
-                print(f"Checking files in '{full_ext_dir}'")
-                match_file_list = []
-                temp_file_list = pu.getFilesInDirectory(full_ext_dir, file_format)
-                for base_file in base_file_list:
-                    match_file = pu.getMatchingFileList(base_file, temp_file_list)
-                    match_file_list.append(match_file)
-                extra_dir_files[dir] = match_file_list
-                #print(f"{extra_dir_files}")
-                if not pu.isValidDict(extra_dir_files):
-                    raise ScriptException(f"ERROR! Failed to build file dictionary for : '{dir}'!")
-   
-    # Loop over all files in the base_file_list and try to proccess their masks
-    print(f"Processing a total of {len(base_file_list)} file(s).")
-    for file_idx, base_file in enumerate(base_file_list):
-        print("--------------------------------------")
-        print(f"PROCESSING: Base file: '{base_file}'.")
-
-        additional_files = []
-        for j, extra_dir in enumerate(extra_dir_files):
-            add_file_list = extra_dir_files[extra_dir]
-            add_file = add_file_list[file_idx]
-            #print(f"Add file : '{add_file}'")
-            additional_files.append(add_file)
-        
-        inputs, actual_exts = readAssociatedFiles(base_file, additional_files)   
-        #print(f"Input keys        : {list(inputs.keys())}")
-        #print(f"Actual input exts : {actual_exts}")
-
-        if not pu.isValidDict(inputs):
-            raise ScriptException("ERROR! : Failed to read input data!")
-
-        if not checkInputRescaling(inputs, sam_template)==True:
-            raise ScriptException("ERROR! : Failed to rescale image or image metrics correctly!")
+    sam_template = None
     
-        # Check and create output directories 
-        add_out_dirs = sam_template['OUTPUT_PATHS']
-        out_key_list = ['MASK']
-        out_key_list.extend(list(inputs.keys())) 
-        #print(f"out_key_list : {out_key_list}.")
-        #print(f"Output path length : {len(add_out_dirs)}, Input path length: {len(inputs)+1}.")
-        
-        if pu.isValidList(add_out_dirs):
-            do_saves = True
-            output_formats = ['png']
-            if len(add_out_dirs)==(len(inputs)+1):
-                output_formats.extend(actual_exts)         
-                print(f"Aassuming we're saving inputs as outputs!")
-                #print(f"Output formats : {output_formats}.")
-                
-            for i, path in enumerate(add_out_dirs):
-                full_output_path = os.path.join(out_root_dir, path)
-                if not pu.checkAndCreateDirectory(full_output_path):
-                    raise ScriptException(f"ERROR! : Failed to find and/or create output directory '{full_output_path}!'!")
-                else:
-                    output_paths[out_key_list[i]] = [full_output_path, output_formats[i]]
-            #print(f"Output dictionary : {output_paths}")             
+    # Set up the SAM template being used - the dictionary commented out below shows the available template names (and associated functions)
+     
+    #sam_templates_dict = {{"BODY_PARSE", "samTemplateImageBodyParse"},
+    #                      {"BODY_PARSE_ALT", "samTemplateImageBodyParseAlternate"},
+    #                      {"IMAGE_PARSE_WITH_HANDS", "samTemplateImageParseWithHands"},
+    #                      {"IMAGE_PARSE", "samTemplateImageParse"},
+    #                      {"GARMENT", "samTemplateGarment"},
+    #                      {"GARMENT_MASK", "samTemplateGarmentMask"},
+    #                      {"AGNOSTIC_3.2", "samTemplateGarmentAgnostic32"}}
+
+    template_list = ["IMAGE_PARSE_WITH_HANDS", "BODY_PARSE", "IMAGE_PARSE", "GARMENT", "GARMENT_MASK", "AGNOSTIC_3.2"]
+
+    for template_name in template_list:
+        print(f"<< RUNNING MASK EXTRACTION FOR '{template_name} >>")
+        # Try to get a valid template function from the dictionary
+        template_func_name = pu.getSafeDictKey(spt.sam_templates_dict, [template_name])
+
+        if verbose==True:
+            print(f"Template definition function name : '{template_func_name}'.")
+
+        if hasattr(spt, template_func_name):
+            func = getattr(spt, template_func_name)
+            sam_template = func()
         else:
-            print("WARNING! : Could not get output directories from template. Outputs will not be saved!")
-            do_saves = False
+            raise ScriptException (f"ERROR! : Template '{template_name}' tried to call '{template_func_name}' as a SAM template, but this function was not found")
+   
+        if not pu.isValidDict(sam_template):
+            raise ScriptException(f"ERROR! : Could not retrieve a valid template dictionary for template '{template_name}'!")        
+
+        # Create the base file list, either by dialog, or by reading the directory
+        if use_file_dialog==True:
+            base_file = pu.getImageFileByDialog()
+            base_file_list = [base_file]
+            print(f"File selected: {base_file}")
+        else:
+            # Check that the base directory exists
+            add_in_dir = sam_template['BASE_IMAGE_INPUT_PATH']
+            base_dir = os.path.join(in_root_dir, add_in_dir)
+            base_file_format = sam_template['BASE_IMAGE_INPUT_FORMATS']
+            if not pu.checkDirectory(base_dir):
+                raise ScriptException(f"ERROR! : Input path '{base_dir}' does not exist!")
+            else: # Get the base file list
+                print(f"Base input directory set to: '{base_dir}'.")
+                base_file_list = pu.getFilesInDirectory(base_dir, base_file_format)
+                if use_random_file==True: # Pick a single file from the list
+                    if random_idx == None:
+                        file_idx = random.randint(0, len(base_file_list)-1)
+                        random_idx = file_idx
+                    else:
+                        file_idx = random_idx
+                    base_file = base_file_list[file_idx]
+                    base_file_list = [base_file] 
+
+        # Check to see if any further input directories exist and, if so, generate file lists for these 
+        # that match the base file list
+        extra_dirs   = sam_template['ADDITIONAL_INPUT_PATHS']
+        file_formats = sam_template['ADDITIONAL_INPUT_FORMATS'] 
+        extra_dir_files = {}
+        output_paths    = {}
+        if pu.isValidList(extra_dirs) and pu.isValidList(file_formats) and len(extra_dirs) == len(file_formats):
+            for dir, file_format in zip(extra_dirs, file_formats):
+                #print(f"In root '{in_root_dir}'...")
+                full_ext_dir = os.path.join(in_root_dir, dir)
+                #print(f"Checking '{full_ext_dir}'...")
+                if not pu.checkDirectory(full_ext_dir):
+                    raise ScriptException(f"ERROR! : Additional required path '{dir}' does not exist!")
+                else:
+                    print(f"Checking files in '{full_ext_dir}'")
+                    match_file_list = []
+                    temp_file_list = pu.getFilesInDirectory(full_ext_dir, file_format)
+                    for base_file in base_file_list:
+                        match_file = pu.getMatchingFileList(base_file, temp_file_list)
+                        match_file_list.append(match_file)
+                    extra_dir_files[dir] = match_file_list
+                    #print(f"{extra_dir_files}")
+                    if not pu.isValidDict(extra_dir_files):
+                        raise ScriptException(f"ERROR! Failed to build file dictionary for : '{dir}'!")
+    
+        # Loop over all files in the base_file_list and try to proccess their masks
+        print(f"Processing a total of {len(base_file_list)} file(s).")
+        for file_idx, base_file in enumerate(base_file_list):
+            print("--------------------------------------")
+            print(f"PROCESSING: Base file: '{base_file}'.")
+
+            additional_files = []
+            for j, extra_dir in enumerate(extra_dir_files):
+                add_file_list = extra_dir_files[extra_dir]
+                add_file = add_file_list[file_idx]
+                #print(f"Add file : '{add_file}'")
+                additional_files.append(add_file)
+            
+            inputs, actual_exts = readAssociatedFiles(base_file, additional_files)   
+            #print(f"Input keys        : {list(inputs.keys())}")
+            #print(f"Actual input exts : {actual_exts}")
+
+            if not pu.isValidDict(inputs):
+                raise ScriptException("ERROR! : Failed to read input data!")
+
+            if not checkInputRescaling(inputs, sam_template)==True:
+                raise ScriptException("ERROR! : Failed to rescale image or image metrics correctly!")
         
-        # OK, Now we should be able to start doing something with SAM
-        if is_sam_OK == True:
-            print("--------------------------------------")                    
-            print("Segment Anything model set up OK!")
-            stored_masks = {}
-            output_image = None
-
-            print("< CREATING INITIAL IMAGE LAYER >")
-            output_image = samDoImageBackgroundGeneration(inputs['0_BASE'], sam_template)
+            # Check and create output directories 
+            add_out_dirs = sam_template['OUTPUT_PATHS']
+            out_key_list = ['MASK']
+            out_key_list.extend(list(inputs.keys())) 
+            #print(f"out_key_list : {out_key_list}.")
+            #print(f"Output path length : {len(add_out_dirs)}, Input path length: {len(inputs)+1}.")
             
-            if pu.isValidNpArray(output_image):
-                print("< CHECKING PRE-PROCESSING REQUIREMENTS >")
-                #Do we need to do any pre-processing to get additional masks?
-                pre_processing_list         = pu.getSafeDictKey(sam_template, ['USE_PRE_PROCESSOR_LIST'])
-                sam_pre_processing_template = None
-
-                if pu.isValidList(pre_processing_list):
-                    for function_name in pre_processing_list:
-                        if hasattr(spt, function_name):
-                            func = getattr(spt, function_name)
-                            sam_pre_processing_template = func()
-                        else:
-                            print("Function not found")
-
-                    if pu.isValidDict(sam_pre_processing_template):
-                        print("< DOING PRE-PROCESSING STEPS >")
-                        stored_masks = samDoMaskTemplatePreProcessing(predictor,
-                                                                      sam_pre_processing_template,
-                                                                      inputs, 
-                                                                      stored_masks,
-                                                                      verbose = verbose,
-                                                                      show_intermediate_results=show_intermediate_results,
-                                                                      show_final_result = show_final_result)
-
-            if pu.isValidNpArray(output_image):
-                print("< DOING MAIN PROCESSING STEPS >")
-                output_image, stored_masks = samDoMaskTemplateProcessing(predictor,
-                                                                         sam_template,
-                                                                         inputs,
-                                                                         output_image,
-                                                                         stored_masks,
-                                                                         verbose = verbose,
-                                                                         show_intermediate_results=show_intermediate_results,
-                                                                         show_final_result = show_final_result)
-                print(f'Valid image after processing? : {pu.isValidNpArray(output_image)}')
-                print(f"Stored mask dictionary keys   : {list(stored_masks.keys())}")            
-              
-            if "POST_PROCESSING" in sam_template.keys() and pu.isValidDict(stored_masks):
-                print("< DOING POST-PROCESSING STEPS >")
-                output_image = samDoMaskTemplatePostProcessing(sam_template,
-                                                               inputs,
-                                                               output_image,
-                                                               stored_masks,
-                                                               verbose = verbose)             
-            else: 
-                print("No post-processing defined.")
-               
-            print("----------------------")
+            if pu.isValidList(add_out_dirs):
+                do_saves = True
+                output_formats = ['.png']
+                if len(add_out_dirs)==(len(inputs)+1):
+                    output_formats.extend(actual_exts)         
+                    print(f"Aassuming we're saving inputs as outputs!")
+                    #print(f"Output formats : {output_formats}.")
+                    
+                for i, path in enumerate(add_out_dirs):
+                    full_output_path = os.path.join(out_root_dir, path)
+                    if not pu.checkAndCreateDirectory(full_output_path):
+                        raise ScriptException(f"ERROR! : Failed to find and/or create output directory '{full_output_path}!'!")
+                    else:
+                        output_paths[out_key_list[i]] = [full_output_path, output_formats[i]]
+                #print(f"Output dictionary : {output_paths}")             
+            else:
+                print("WARNING! : Could not get output directories from template. Outputs will not be saved!")
+                do_saves = False
             
-            if show_final_composite==True:   
-                showImageAndMask(inputs['0_BASE'], output_image, win_title=base_file)
-
-               
-            if do_saves==True:
-                print("< SAVING OUTPUTS >")     
-                file_title = pu.getFileTitle(base_file)
-                rename_files = pu.getSafeDictKey(sam_template, ['RENAME_OUTPUT_FILES'])
-                print(f"Rename files : {rename_files}")
-                if not rename_files == None:
-                    if rename_files==True:
-                        file_title = str(file_idx+1).zfill(6) + "_0"                
+            # OK, Now we should be able to start doing something with SAM
+            if is_sam_OK == True:
+                print("--------------------------------------")                    
+                print("< SEGMENT ANYTHING MODEL INITIALISED >")
+                stored_masks = {}
+                output_image = None
+       
+                print("< CREATING INITIAL IMAGE LAYER >")
+                output_image = samDoImageBackgroundGeneration(inputs['0_BASE'], sam_template)
                 
-                for dir_key, dir_item in output_paths.items():
-                    #print(f"{dir_key}, {dir_item[0]}, {dir_item[1]}")
-                    output_filename = dir_item[0] + '/' + file_title + "." + dir_item[1]
-                    if dir_key == "MASK": 
-                        out_data = output_image    
-                    else:
-                        #print(f"Saving output for key '{dir_key}'")
-                        out_data = inputs[dir_key]                    
+                if pu.isValidNpArray(output_image):
+                    print("< CHECKING PRE-PROCESSING REQUIREMENTS >")
+                    #Do we need to do any pre-processing to get additional masks?
+                    pre_processing_list         = pu.getSafeDictKey(sam_template, ['USE_PRE_PROCESSOR_LIST'])
+                    sam_pre_processing_template = None
 
-                    out_type = str(type(out_data))
+                    if pu.isValidList(pre_processing_list):
+                        for function_name in pre_processing_list:
+                            if hasattr(spt, function_name):
+                                func = getattr(spt, function_name)
+                                sam_pre_processing_template = func()
+                            else:
+                                raise ScriptException (f"ERROR! : Template tried to call '{function_name}' as a pre-processor, but this function was not found")
 
-                    if out_type == "<class 'numpy.ndarray'>":       
-                        try:
-                            ski.io.imsave(output_filename, out_data)
-                            print(f"Saved '{output_filename}'.")
-                        except Exception as e:
-                            print(f"WARNING! : Failed to save image: {e}")
-                    elif out_type == "<class 'dict'>": 
-                        try:
-                            with open(output_filename, 'w') as json_file:
-                                json.dump(out_data, json_file, indent=4)
+                        if pu.isValidDict(sam_pre_processing_template):
+                            print("< DOING PRE-PROCESSING STEPS >")
+                            stored_masks = samDoMaskTemplatePreProcessing(predictor,
+                                                                        sam_pre_processing_template,
+                                                                        inputs, 
+                                                                        stored_masks,
+                                                                        verbose = verbose,
+                                                                        show_intermediate_results=show_intermediate_results,
+                                                                        show_final_result = show_final_result)
+                        else:
+                            print("No pre-processing defined.")
+
+                if pu.isValidNpArray(output_image):
+                    print("< DOING MAIN PROCESSING STEPS >")
+                    output_image, stored_masks = samDoMaskTemplateProcessing(predictor,
+                                                                            sam_template,
+                                                                            inputs,
+                                                                            output_image,
+                                                                            stored_masks,
+                                                                            verbose = verbose,
+                                                                            show_intermediate_results=show_intermediate_results,
+                                                                            show_final_result = show_final_result)
+                    
+                    if verbose == True:
+                        print(f'Valid image after processing? : {pu.isValidNpArray(output_image)}')
+                        print(f"Stored mask dictionary keys   : {list(stored_masks.keys())}")            
+                
+                if "POST_PROCESSING" in sam_template.keys() and pu.isValidDict(stored_masks):
+                    print("< DOING POST-PROCESSING STEPS >")
+                    output_image = samDoMaskTemplatePostProcessing(sam_template,
+                                                                inputs,
+                                                                output_image,
+                                                                stored_masks,
+                                                                verbose = verbose)             
+                else: 
+                    print("No post-processing defined.")
+                
+                print("----------------------")
+                
+                if show_final_composite==True:   
+                    showImageAndMask(inputs['0_BASE'], output_image, win_title=base_file)
+
+                
+                if do_saves==True:
+                    print("< SAVING OUTPUTS >")     
+                    file_title = pu.getFileTitle(base_file)
+                    rename_files = pu.getSafeDictKey(sam_template, ['RENAME_OUTPUT_FILES'])
+                    print(f"Rename files : {rename_files}")
+                    if not rename_files == None:
+                        if rename_files==True:
+                            file_title = str(file_idx+1).zfill(6) + "_0"                
+                    
+                    for dir_key, dir_item in output_paths.items():
+                        #print(f"{dir_key}, {dir_item[0]}, {dir_item[1]}")
+                        output_filename = dir_item[0] + '/' + file_title + dir_item[1]
+                        if dir_key == "MASK": 
+                            out_data = output_image    
+                        else:
+                            #print(f"Saving output for key '{dir_key}'")
+                            out_data = inputs[dir_key]                    
+
+                        out_type = str(type(out_data))
+
+                        if out_type == "<class 'numpy.ndarray'>":       
+                            try:
+                                ski.io.imsave(output_filename, out_data)
                                 print(f"Saved '{output_filename}'.")
-                        except Exception as e:
-                            print(f"WARNING! : Failed to save JSON file: {e}")
-                    else:
-                        print(f"WARNING! : Output data was 'None'!")
-            
-            print("----= Finished image =----")
+                            except Exception as e:
+                                print(f"WARNING! : Failed to save image: {e}")
+                        elif out_type == "<class 'dict'>": 
+                            try:
+                                with open(output_filename, 'w') as json_file:
+                                    json.dump(out_data, json_file, indent=4)
+                                    print(f"Saved '{output_filename}'.")
+                            except Exception as e:
+                                print(f"WARNING! : Failed to save JSON file: {e}")
+                        else:
+                            print(f"WARNING! : Output data was 'None'!")
+                
+                print("----= Finished image =----")
             
     print("---------= End of Script =---------")
 

@@ -2,6 +2,32 @@
 # the densepose and CVTON models 
 # Dr Paul Goodman, NICD, Newcastle University, 27/01/2024
 
+densepose_semantic_cols = [(0, 0, 0), # 0, Background
+	                       (25, 42, 114), # 1 Torso 1 (Rear)
+	                       (14, 56, 135), # 2 Torso 2 (Front)
+	                       (2, 67, 156), # 3 Right Hand
+	                       (5, 77, 154), # 4 Left Hand
+	                       (9, 85, 151), # 5 Left Foot
+	                       (14, 92, 148), # 6 Right Foot
+	                       (9, 100, 145), # 7 Right Leg Upper (Rear)
+	                       (6, 109, 142), # 8 Left Leg Upper (Rear)
+	                       (4, 116, 138), # 9 Right leg Upper (Front)
+	                       (15, 120, 129), # 10 Left leg Upper (Front)
+	                       (25, 125, 120), # 11 Right leg Lower (Rear)
+	                       (39, 129, 110), # 12 Left Leg Lower (Rear)
+	                       (60, 130, 100), # 13 Right leg Lower (Front)
+	                       (79, 132, 92), # 14 Left Leg Lower (Front)
+	                       (101, 133, 81), # 15 Left Arm - Upper inner
+	                       (118, 132, 73), # 16 Right Arm - Upper inner
+	                       (134, 131, 67), # 17 Left Arm - Upper outer
+	                       (151, 130, 60), # 18 Right Arm - Upper outer
+	                       (159, 134, 51), # 19 Left Arm - Lower inner
+	                       (168, 139, 42), # 20 Right arm - Lower inner
+	                       (176, 144, 32), # 21 Left Arm - Lower outer 
+	                       (175, 154, 25), # 22 Right Arm - Lower outer
+	                       (175, 164, 17), # 23 Right face
+	                       (174, 175, 9)] # 24 Left Face  
+
 densepose_semantic_labels = [ "0-Background",
 	                          "1-Torso-Rear",
                               "2-Torso-Front",
@@ -27,6 +53,88 @@ densepose_semantic_labels = [ "0-Background",
                               "22-Arm-Right-Lower-Outer",
                               "23-Head-Right",
                               "24-Head-Left"]
+
+densepose_semantic_dict = dict(zip(densepose_semantic_labels, densepose_semantic_cols))
+
+# Colours seem to be derived from LIP Challenge Data?
+semantic_cloth_colours = [ [128, 0, 128],   # 0-Torso
+                           [128, 128, 64],  # 1-Left arm
+                           [128, 128, 192], # 2-Right arm
+                           [0, 255, 0],     # 3-Neck
+                           [0, 128, 128],   # 4-Dress
+                           [128, 128, 128], # 5-Unknown-upper
+                           [0, 0, 0],       # 6-Background
+                           [0, 128, 0],     # 7-Hair
+                           [0, 64, 0],      # 8-Left-leg
+                           [128, 128, 0],   # 9-Right-hand
+                           [0, 192, 0],     # 10-Left foot
+                           [128, 0, 192],   # 11-Head
+                           [0, 0, 192],     # 12-Trousers 
+                           [0, 64, 128],    # 13-Skirt
+                           [128, 0, 64],    # 14-Left-hand
+                           [0, 192, 128],   # 15-Right-foot
+                           [0, 0, 128],     # 16-Unknown-1
+                           [0, 128, 64],    # 17-Unknown-2
+                           [0, 0, 64],      # 18-Unknown-3
+                           [0, 128, 192] ]  # 19-Unknown-4 
+
+semantic_cloth_labels = [ "0-Torso",
+                          "1-Left-Arm",
+                          "2-Right-Arm",
+                          "3-Neck",
+                          "4-Dress",
+                          "5-Unknown-upper",
+                          "6-Background",
+                          "7-Hair",
+                          "8-Left-Leg",
+                          "9-Right-Hand",
+                          "10-Left-Foot",
+                          "11-Head",
+                          "12-Trousers", 
+                          "13-Skirt",
+                          "14-Left-Hand",
+                          "15-Right-Foot",
+                          "16-Unknown-1",
+                          "17-Unknown-2",
+                          "18-Unknown-3",
+                          "19-Unknown-42" ]
+
+semantic_cloth_dict = dict(zip(semantic_cloth_labels, semantic_cloth_colours))
+
+# Unknown providence?
+semantic_body_colours = [ [127, 127, 127], # 0-Head\n",
+                          [0, 255, 255],   # 1-Left Hand\n",
+                          [255, 255, 0],   # 2-Left-Arm-Upper",
+                          [127, 127, 0],   # 3-Right-Hand\n",
+                          [255, 127, 127], # 4-Unknown-1
+                          [0, 255, 0],     # 5-Left-Leg",
+                          [0, 0, 0],       # 6-Background",
+                          [255, 127, 0],   # 7-Right-Arm-Upper",
+                          [0, 0, 255],     # 8-Right-Leg",
+                          [127, 255, 127], # 9-Unknown-2
+                          [0, 127, 255],   # 10-Unknown-3
+                          [127, 0, 255],   # 11-Right-Arm-Lower",
+                          [255, 255, 127], # 12-Unknown-4
+                          [255, 0, 0],     # 13-Torso",
+                          [255, 0, 255] ]  # 14-Left-Arm-Lower"
+
+semantic_body_labels = [ "0-Head",
+                         "1-Left-Hand",
+                         "2-Left-Arm-Upper",
+                         "3-Right-Hand",
+                         "4-Unknown-1",
+                         "5-Left-Leg",
+                         "6-Background",
+                         "7-Right-Arm-Upper",
+                         "8-Right-Leg",
+                         "9-Unknown-2",
+                         "10-Unknown-3",
+                         "11-Right-Arm-Lower",
+                         "12-Unknown-4",
+                         "13-Torso",
+                         "14-Left-Arm-Lower" ]
+
+semantic_body_dict = dict(zip(semantic_body_labels, semantic_body_colours))
 
 densepose_groupings = {"BACKG" : [0],
                        "BODY"  : [1, 2],
@@ -92,32 +200,6 @@ densepose_raw_skeleton = {"0-Background" 				: [0],
                           "23-Head-Right" 				: [23],
                           "24-Head-Left" 				: [24] }
 
-densepose_semantic_cols = [(0, 0, 0), # 0, Background
-	                       (25, 42, 114), # 1 Torso 1 (Rear)
-	                       (14, 56, 135), # 2 Torso 2 (Front)
-	                       (2, 67, 156), # 3 Right Hand
-	                       (5, 77, 154), # 4 Left Hand
-	                       (9, 85, 151), # 5 Left Foot
-	                       (14, 92, 148), # 6 Right Foot
-	                       (9, 100, 145), # 7 Right Leg Upper (Rear)
-	                       (6, 109, 142), # 8 Left Leg Upper (Rear)
-	                       (4, 116, 138), # 9 Right leg Upper (Front)
-	                       (15, 120, 129), # 10 Left leg Upper (Front)
-	                       (25, 125, 120), # 11 Right leg Lower (Rear)
-	                       (39, 129, 110), # 12 Left Leg Lower (Rear)
-	                       (60, 130, 100), # 13 Right leg Lower (Front)
-	                       (79, 132, 92), # 14 Left Leg Lower (Front)
-	                       (101, 133, 81), # 15 Left Arm - Upper inner
-	                       (118, 132, 73), # 16 Right Arm - Upper inner
-	                       (134, 131, 67), # 17 Left Arm - Upper outer
-	                       (151, 130, 60), # 18 Right Arm - Upper outer
-	                       (159, 134, 51), # 19 Left Arm - Lower inner
-	                       (168, 139, 42), # 20 Right arm - Lower inner
-	                       (176, 144, 32), # 21 Left Arm - Lower outer 
-	                       (175, 154, 25), # 22 Right Arm - Lower outer
-	                       (175, 164, 17), # 23 Right face
-	                       (174, 175, 9)] # 24 Left Face  
-
 cvton_semantic_cols = [(0, 0, 0), # 0 Background
 	                   (105, 105, 105), # 1 Torso 1 (Rear)
 	                   (85, 107, 47), # 2 Torso 2 (Front)
@@ -143,6 +225,8 @@ cvton_semantic_cols = [(0, 0, 0), # 0 Background
 	                   (255, 20, 147), # 22 Right Arm - Lower outer
 	                   (255, 160, 122), # 23 Right face
 	                   (127, 255, 212)] # 24 Left Face
+
+semantic_cvton_dict = dict(zip(densepose_semantic_labels, cvton_semantic_cols))
 
 input_mode_dict = { "DEFAULT": densepose_semantic_cols,
                     "CVTON"  : cvton_semantic_cols }
