@@ -353,7 +353,7 @@ def readAssociatedFiles(base_file, additional_files):
                 else:
                     #print(f"Reading add image file : '{add_file}'")
                     key = str(i+1) + '_ADD_IMAGE'
-                    files[key] = ski.io.imread(add_file)
+                    files[key] = doPreprocessImage(ski.io.imread(add_file))
                     exts.append(ext)       
             
     except Exception as e:
@@ -526,7 +526,8 @@ def samDoInference(layer,
             if multi_out==True: #Return highest score mask
                 if not force_multi:
                     idx = np.argmax(scores)
-                    print(f"Selected mask idx: {idx}")
+                    if verbose==True:
+                        print(f"Selected mask idx: {idx}")
                     result = masks[np.argmax(scores)]
                 else:
                     result = masks[force_multi]
@@ -867,8 +868,9 @@ def samDoMaskTemplatePreProcessing(predictor,
                         raise ScriptException(f"ERROR! : mask name not found, or invalid mask - cannot add pre-processing results to saved masks!")  
                 else:
                     raise ScriptException(f"ERROR! : Unknown post-processing action '{action}' defined in post-processing order!") 
-
-        print(f"Stored masks after pre-processing step: {stored_masks.keys()}")
+        
+        if verbose==True:
+            print(f"Stored masks after pre-processing step: {stored_masks.keys()}")
 
     return stored_masks
 
@@ -999,9 +1001,9 @@ do_saves                  = True
 do_input_saves            = False
 
 use_random_file           = False
-use_file_dialog           = True
+use_file_dialog           = False
 
-verbose                   = True
+verbose                   = False
 show_intermediate_results = False
 show_final_result         = False
 show_final_composite      = False
