@@ -33,6 +33,15 @@ def checkAndCreateDirectory(path, warn_if_present = False):
 def checkDirectory(path):
     return os.path.exists(path) and os.path.isdir(path)
 
+# Delete files and sub-directories from a directory, then delete that directory
+def deleteDirectoryContents(path):
+    for root, dirs, files in os.walk(path, topdown=False):
+        for file in files:
+            os.remove(os.path.join(root, file))
+        for dir in dirs:
+            os.rmdir(os.path.join(root, dir))
+    os.rmdir(path)
+
 # Check that tow objects are valid dictionaries and that their keys match
 def doDictKeysMatch(dict1, dict2):
     return isValidDict(dict1) and isValidDict(dict2) and dict1.keys() == dict2.keys()
